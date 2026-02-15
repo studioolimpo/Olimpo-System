@@ -1,0 +1,9 @@
+{
+    "liveServer.settings.https": {
+        "enable": true,
+        "cert": "/Users/lorenzomala/Documents/GitHub/Olimpo-System/.cert/localhost.crt",
+        "key": "/Users/lorenzomala/Documents/GitHub/Olimpo-System/.cert/localhost.key",
+        "passphrase": ""
+    },
+    "liveServer.settings.port": 5501
+}
