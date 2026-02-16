@@ -1016,7 +1016,6 @@ CODE MAP
         locked: false,
         _tickerFn: null,
         _onLenisScroll: null,
-        _resumeBound: false,
 
         initLenis() {
             if (!CONFIG.lenis?.enabled) return;
@@ -1032,14 +1031,6 @@ CODE MAP
                 lerp: CONFIG.lenis.lerp,
                 wheelMultiplier: CONFIG.lenis.wheelMultiplier,
                 touchMultiplier: CONFIG.lenis.touchMultiplier,
-                smoothTouch: CONFIG.lenis.smoothTouch,
-                smoothWheel: CONFIG.lenis.smoothWheel,
-                syncTouch: CONFIG.lenis.syncTouch || false,
-                syncTouchLerp: CONFIG.lenis.syncTouchLerp || 0.1,
-                touchInertiaMultiplier: CONFIG.lenis.touchInertiaMultiplier || 35,
-                normalizeWheel: CONFIG.lenis.normalizeWheel || false,
-
-
             });
 
             window.lenis = this.lenis;
@@ -1057,6 +1048,7 @@ CODE MAP
 
                 this._tickerFn = (time) => {
                     try {
+                        // GSAP ticker time is in seconds, Lenis expects ms
                         this.lenis.raf(time * 1000);
                     } catch (_) { }
                 };
@@ -1093,7 +1085,6 @@ CODE MAP
             } catch (_) { }
 
             this.lenis = null;
-            this.locked = false;
             if (window.lenis) {
                 try {
                     delete window.lenis;
