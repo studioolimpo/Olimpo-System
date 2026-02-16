@@ -1016,6 +1016,7 @@ CODE MAP
         locked: false,
         _tickerFn: null,
         _onLenisScroll: null,
+        _resumeBound: false,
 
         initLenis() {
             if (!CONFIG.lenis?.enabled) return;
@@ -1092,6 +1093,7 @@ CODE MAP
             } catch (_) { }
 
             this.lenis = null;
+            this.locked = false;
             if (window.lenis) {
                 try {
                     delete window.lenis;
@@ -1406,10 +1408,10 @@ CODE MAP
                 state = navWrap.getAttribute("data-nav");
                 if (state === "open") {
                     closeNav();
-                    lenis.start();
+                    try { window.lenis?.start?.(); } catch (_) { }
                 } else {
                     openNav();
-                    lenis.stop();
+                    try { window.lenis?.stop?.(); } catch (_) { }
                 }
             });
         });
@@ -1423,7 +1425,7 @@ CODE MAP
             ) {
                 if (window.location.pathname === $(this).attr("href")) {
                     closeNav();
-                    lenis.start();
+                    try { window.lenis?.start?.(); } catch (_) { }
                 } else {
                     e.preventDefault();
                     transitionNav();
