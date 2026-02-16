@@ -802,14 +802,14 @@ CODE MAP
 
         if (typeof window.Swiper !== "function") {
             log("[SLIDERS] Swiper not found, skip");
-            return () => {};
+            return () => { };
         }
 
         const components = root.querySelectorAll(
             "[data-slider='component']:not([data-slider='component'] [data-slider='component'])"
         );
 
-        if (!components.length) return () => {};
+        if (!components.length) return () => { };
 
         const cleanups = [];
 
@@ -876,9 +876,9 @@ CODE MAP
 
             // Correct navigation selectors (button inside the wrapper)
             const nextBtn = component.querySelector("[data-slider='next'] button")
-                         || component.querySelector("[data-slider='next']");
+                || component.querySelector("[data-slider='next']");
             const prevBtn = component.querySelector("[data-slider='previous'] button")
-                         || component.querySelector("[data-slider='previous']");
+                || component.querySelector("[data-slider='previous']");
             const paginationEl = component.querySelector(".slider_bullet_list");
 
             // Variant-specific config
@@ -921,7 +921,7 @@ CODE MAP
                                 bulletElement: "button",
                                 clickable: true,
                             },
-                          }
+                        }
                         : {}),
                     // Archive variant: continuous marquee scroll
                     ...(isArchive
@@ -936,7 +936,7 @@ CODE MAP
                             },
                             allowTouchMove: true,
                             watchOverflow: true,
-                          }
+                        }
                         : {}),
                     slideActiveClass: "is-active",
                     slideDuplicateActiveClass: "is-active",
@@ -963,28 +963,28 @@ CODE MAP
                                 swiperInstance.params.centeredSlides = newShouldCenter;
                             }
 
-                            try { swiperInstance.update(); } catch (_) {}
+                            try { swiperInstance.update(); } catch (_) { }
                         }, 150);
                     });
                     ro.observe(offsetEl);
                 }
-            } catch (_) {}
+            } catch (_) { }
 
             const cleanup = () => {
-                try { if (ro) ro.disconnect(); } catch (_) {}
+                try { if (ro) ro.disconnect(); } catch (_) { }
                 ro = null;
-                try { if (swiperInstance) swiperInstance.destroy(true, true); } catch (_) {}
+                try { if (swiperInstance) swiperInstance.destroy(true, true); } catch (_) { }
                 swiperInstance = null;
                 try {
                     delete component.dataset.scriptInitialized;
                     delete component.dataset.worksAlternated;
-                } catch (_) {}
+                } catch (_) { }
             };
 
             cleanups.push(cleanup);
         });
 
-        return () => cleanups.forEach((fn) => { try { fn(); } catch (_) {} });
+        return () => cleanups.forEach((fn) => { try { fn(); } catch (_) { } });
     }
 
     // Barba lifecycle (once/leave/enter) handles init and cleanup.
@@ -1016,55 +1016,57 @@ CODE MAP
         _onLenisScroll: null,
 
         initLenis() {
-    if (!CONFIG.lenis?.enabled) return;
-    if (!Lenis) {
-        log("Lenis not found, fallback to native scroll");
-        return;
-    }
+            if (!CONFIG.lenis?.enabled) return;
+            if (!Lenis) {
+                log("Lenis not found, fallback to native scroll");
+                return;
+            }
 
-    // Ensure clean state (important for BFCache / tab resume)
-    this.destroyLenis();
+            // Ensure clean state (important for BFCache / tab resume)
+            this.destroyLenis();
 
-    this.lenis = new Lenis({
-        lerp: CONFIG.lenis.lerp,
-        wheelMultiplier: CONFIG.lenis.wheelMultiplier,
-        touchMultiplier: CONFIG.lenis.touchMultiplier,
-        syncTouch: CONFIG.lenis.syncTouch || false,
-        syncTouchLerp: CONFIG.lenis.syncTouchLerp || 0.1,
-        touchInertiaMultiplier: CONFIG.lenis.touchInertiaMultiplier || 35,
-        normalizeWheel: CONFIG.lenis.normalizeWheel || false,
-    });
+            this.lenis = new Lenis({
+                lerp: CONFIG.lenis.lerp,
+                wheelMultiplier: CONFIG.lenis.wheelMultiplier,
+                touchMultiplier: CONFIG.lenis.touchMultiplier,
+                syncTouch: CONFIG.lenis.syncTouch || false,
+                syncTouchLerp: CONFIG.lenis.syncTouchLerp || 0.1,
+                touchInertiaMultiplier: CONFIG.lenis.touchInertiaMultiplier || 35,
+                normalizeWheel: CONFIG.lenis.normalizeWheel || false,
 
-    window.lenis = this.lenis;
 
-    if (CONFIG.lenis.useGsapTicker && gsap && gsap.ticker) {
-        this._onLenisScroll = () => {
-            try {
-                if (ScrollTrigger) ScrollTrigger.update();
-            } catch (_) { }
-        };
+            });
 
-        try {
-            if (ScrollTrigger) this.lenis.on("scroll", this._onLenisScroll);
-        } catch (_) { }
+            window.lenis = this.lenis;
 
-        this._tickerFn = (time) => {
-            try {
-                this.lenis.raf(time * 1000);
-            } catch (_) { }
-        };
+            if (CONFIG.lenis.useGsapTicker && gsap && gsap.ticker) {
+                this._onLenisScroll = () => {
+                    try {
+                        if (ScrollTrigger) ScrollTrigger.update();
+                    } catch (_) { }
+                };
 
-        gsap.ticker.add(this._tickerFn);
-        try {
-            gsap.ticker.lagSmoothing(0);
-        } catch (_) { }
+                try {
+                    if (ScrollTrigger) this.lenis.on("scroll", this._onLenisScroll);
+                } catch (_) { }
 
-        log("Lenis init (GSAP ticker)");
-        return;
-    }
+                this._tickerFn = (time) => {
+                    try {
+                        this.lenis.raf(time * 1000);
+                    } catch (_) { }
+                };
 
-    log("Lenis init (no ticker integration)");
-},
+                gsap.ticker.add(this._tickerFn);
+                try {
+                    gsap.ticker.lagSmoothing(0);
+                } catch (_) { }
+
+                log("Lenis init (GSAP ticker)");
+                return;
+            }
+
+            log("Lenis init (no ticker integration)");
+        },
 
         destroyLenis() {
             if (this._tickerFn && gsap && gsap.ticker) {
@@ -1325,106 +1327,106 @@ CODE MAP
 
 
     /* TEMP DISABLED: original initMenu */
-// TEMP REPLACEMENT initMenu (user provided)
-function initMenu() {
-  gsap.registerPlugin(CustomEase);
-  CustomEase.create("main", "0.62, 0.05, 0.01, 0.99");
-  CustomEase.create("mainOut", "0.55, 0.05, 0.18, 1");
+    // TEMP REPLACEMENT initMenu (user provided)
+    function initMenu() {
+        gsap.registerPlugin(CustomEase);
+        CustomEase.create("main", "0.62, 0.05, 0.01, 0.99");
+        CustomEase.create("mainOut", "0.55, 0.05, 0.18, 1");
 
-  gsap.defaults({
-    ease: "main",
-    duration: 0.7
-  });
+        gsap.defaults({
+            ease: "main",
+            duration: 0.7
+        });
 
-  let navWrap = document.querySelector(".nav_wrap");
-  let state = navWrap.getAttribute("data-nav");
-  let overlay = navWrap.querySelector(".nav_overlay");
-  let menu = navWrap.querySelector(".nav_menu");
-  let logoLink = navWrap.querySelector(".nav_logo_row");
-  let bgPanels = navWrap.querySelectorAll(".nav_menu_panel");
-  let menuToggles = document.querySelectorAll("[data-menu-toggle]");
-  let menuLinks = navWrap.querySelectorAll(".u-text-style-h1");
-  let menuIndexs = navWrap.querySelectorAll(".nav_menu_index");
-  let menuButton = document.querySelector(".menu_btn_wrap");
-  let menuButtonLayout = menuButton.querySelectorAll(".menu_btn_layout");
-  let menuDivider = navWrap.querySelectorAll(".nav_menu_divider");
-  let menuList = navWrap.querySelector(".nav_menu_list");
-  let navTransition = navWrap.querySelector(".nav_transition");
-  let menuFooter = navWrap.querySelector(".nav_menu_footer");
+        let navWrap = document.querySelector(".nav_wrap");
+        let state = navWrap.getAttribute("data-nav");
+        let overlay = navWrap.querySelector(".nav_overlay");
+        let menu = navWrap.querySelector(".nav_menu");
+        let logoLink = navWrap.querySelector(".nav_logo_row");
+        let bgPanels = navWrap.querySelectorAll(".nav_menu_panel");
+        let menuToggles = document.querySelectorAll("[data-menu-toggle]");
+        let menuLinks = navWrap.querySelectorAll(".u-text-style-h1");
+        let menuIndexs = navWrap.querySelectorAll(".nav_menu_index");
+        let menuButton = document.querySelector(".menu_btn_wrap");
+        let menuButtonLayout = menuButton.querySelectorAll(".menu_btn_layout");
+        let menuDivider = navWrap.querySelectorAll(".nav_menu_divider");
+        let menuList = navWrap.querySelector(".nav_menu_list");
+        let navTransition = navWrap.querySelector(".nav_transition");
+        let menuFooter = navWrap.querySelector(".nav_menu_footer");
 
-  let tl = gsap.timeline();
+        let tl = gsap.timeline();
 
-  const openNav = () => {
-    navWrap.setAttribute("data-nav", "open");
-    tl.clear()
-      .set(navWrap, { display: "block" })
-      .set(menu, { yPercent: 0 }, "<")
-      .set(navTransition, { autoAlpha: 0 }, "<")
-      .fromTo(overlay, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.8, ease: "power2.out" }, "<")
-      .fromTo(bgPanels, { yPercent: 101 }, { yPercent: 0, duration: 0.85 }, "<0.05")
-      .fromTo(menuButtonLayout, { yPercent: 0 }, { yPercent: -150, duration: 1 }, "<")
-      .fromTo(menuList, { yPercent: 40 }, { yPercent: 0, duration: 1 }, "<0.15")
-      .fromTo(menuLinks, { autoAlpha: 0, yPercent: 120 }, { yPercent: 0, autoAlpha: 1, duration: 0.9, stagger: 0.08 }, "<0.1")
-      .fromTo(menuIndexs, { yPercent: 80, autoAlpha: 0 }, { yPercent: 0, autoAlpha: 1, duration: 0.7, stagger: 0.08 }, "<0.05")
-      .fromTo(menuDivider, { scaleX: 0, transformOrigin: "left" }, { scaleX: 1, stagger: 0.06, duration: 0.9 }, "<0.1")
-      .fromTo(menuFooter, { autoAlpha: 0, yPercent: 30 }, { autoAlpha: 1, yPercent: 0, duration: 0.7 }, "<0.3");
-  };
+        const openNav = () => {
+            navWrap.setAttribute("data-nav", "open");
+            tl.clear()
+                .set(navWrap, { display: "block" })
+                .set(menu, { yPercent: 0 }, "<")
+                .set(navTransition, { autoAlpha: 0 }, "<")
+                .fromTo(overlay, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.8, ease: "power2.out" }, "<")
+                .fromTo(bgPanels, { yPercent: 101 }, { yPercent: 0, duration: 0.85 }, "<0.05")
+                .fromTo(menuButtonLayout, { yPercent: 0 }, { yPercent: -150, duration: 1 }, "<")
+                .fromTo(menuList, { yPercent: 40 }, { yPercent: 0, duration: 1 }, "<0.15")
+                .fromTo(menuLinks, { autoAlpha: 0, yPercent: 120 }, { yPercent: 0, autoAlpha: 1, duration: 0.9, stagger: 0.08 }, "<0.1")
+                .fromTo(menuIndexs, { yPercent: 80, autoAlpha: 0 }, { yPercent: 0, autoAlpha: 1, duration: 0.7, stagger: 0.08 }, "<0.05")
+                .fromTo(menuDivider, { scaleX: 0, transformOrigin: "left" }, { scaleX: 1, stagger: 0.06, duration: 0.9 }, "<0.1")
+                .fromTo(menuFooter, { autoAlpha: 0, yPercent: 30 }, { autoAlpha: 1, yPercent: 0, duration: 0.7 }, "<0.3");
+        };
 
-  const closeNav = () => {
-    navWrap.setAttribute("data-nav", "closed");
-    tl.clear()
-      .to(menuLinks, { yPercent: -60, autoAlpha: 0, duration: 0.45, stagger: 0.03, ease: "mainOut" })
-      .to(menuIndexs, { autoAlpha: 0, duration: 0.3 }, "<")
-      .to(menuDivider, { scaleX: 0, transformOrigin: "right center", duration: 0.4, ease: "mainOut" }, "<")
-      .to(menuFooter, { autoAlpha: 0, yPercent: 20, duration: 0.35 }, "<")
-      .to(bgPanels, { yPercent: -101, duration: 0.65, ease: "mainOut" }, "-=0.15")
-      .to(overlay, { autoAlpha: 0, duration: 0.5, ease: "power2.inOut" }, "<0.1")
-      .to(menuButtonLayout, { yPercent: 0, duration: 0.8 }, "<")
-      .set(navWrap, { display: "none" });
-  };
+        const closeNav = () => {
+            navWrap.setAttribute("data-nav", "closed");
+            tl.clear()
+                .to(menuLinks, { yPercent: -60, autoAlpha: 0, duration: 0.45, stagger: 0.03, ease: "mainOut" })
+                .to(menuIndexs, { autoAlpha: 0, duration: 0.3 }, "<")
+                .to(menuDivider, { scaleX: 0, transformOrigin: "right center", duration: 0.4, ease: "mainOut" }, "<")
+                .to(menuFooter, { autoAlpha: 0, yPercent: 20, duration: 0.35 }, "<")
+                .to(bgPanels, { yPercent: -101, duration: 0.65, ease: "mainOut" }, "-=0.15")
+                .to(overlay, { autoAlpha: 0, duration: 0.5, ease: "power2.inOut" }, "<0.1")
+                .to(menuButtonLayout, { yPercent: 0, duration: 0.8 }, "<")
+                .set(navWrap, { display: "none" });
+        };
 
-  const transitionNav = () => {
-    navWrap.setAttribute("data-nav", "closed");
-    tl.clear()
-      .to(menuLinks, { yPercent: -40, autoAlpha: 0, duration: 0.35, stagger: 0.02, ease: "power2.in" })
-      .to([menuIndexs, menuDivider, menuFooter], { autoAlpha: 0, duration: 0.25 }, "<")
-      .to(navTransition, { autoAlpha: 1, duration: 0.45, ease: "power2.inOut" }, "-=0.1")
-      .to(menu, { yPercent: -40, duration: 0.5, ease: "power2.out" }, "<")
-      .to(overlay, { autoAlpha: 0, duration: 0.4 }, "<")
-      .to(menuButtonLayout, { yPercent: 0, duration: 0.6 }, "<0.15")
-      .set(navWrap, { display: "none" });
-  };
+        const transitionNav = () => {
+            navWrap.setAttribute("data-nav", "closed");
+            tl.clear()
+                .to(menuLinks, { yPercent: -40, autoAlpha: 0, duration: 0.35, stagger: 0.02, ease: "power2.in" })
+                .to([menuIndexs, menuDivider, menuFooter], { autoAlpha: 0, duration: 0.25 }, "<")
+                .to(navTransition, { autoAlpha: 1, duration: 0.45, ease: "power2.inOut" }, "-=0.1")
+                .to(menu, { yPercent: -40, duration: 0.5, ease: "power2.out" }, "<")
+                .to(overlay, { autoAlpha: 0, duration: 0.4 }, "<")
+                .to(menuButtonLayout, { yPercent: 0, duration: 0.6 }, "<0.15")
+                .set(navWrap, { display: "none" });
+        };
 
-  menuToggles.forEach((toggle) => {
-    toggle.addEventListener("click", () => {
-      state = navWrap.getAttribute("data-nav");
-      if (state === "open") {
-        closeNav();
-        lenis.start();
-      } else {
-        openNav();
-        lenis.stop();
-      }
-    });
-  });
+        menuToggles.forEach((toggle) => {
+            toggle.addEventListener("click", () => {
+                state = navWrap.getAttribute("data-nav");
+                if (state === "open") {
+                    closeNav();
+                    lenis.start();
+                } else {
+                    openNav();
+                    lenis.stop();
+                }
+            });
+        });
 
-  $("a").on("click", function (e) {
-    if (
-      $(this).prop("hostname") === window.location.host &&
-      $(this).attr("href").indexOf("#") === -1 &&
-      $(this).attr("target") !== "_blank" &&
-      navWrap.getAttribute("data-nav") === "open"
-    ) {
-      if (window.location.pathname === $(this).attr("href")) {
-        closeNav();
-        lenis.start();
-      } else {
-        e.preventDefault();
-        transitionNav();
-      }
+        $("a").on("click", function (e) {
+            if (
+                $(this).prop("hostname") === window.location.host &&
+                $(this).attr("href").indexOf("#") === -1 &&
+                $(this).attr("target") !== "_blank" &&
+                navWrap.getAttribute("data-nav") === "open"
+            ) {
+                if (window.location.pathname === $(this).attr("href")) {
+                    closeNav();
+                    lenis.start();
+                } else {
+                    e.preventDefault();
+                    transitionNav();
+                }
+            }
+        });
     }
-  });
-}
 
 
     /* =========================
@@ -1789,278 +1791,282 @@ function initMenu() {
     ========================= */
 
     function initDynamicYear(scope = document) {
-  const year = String(new Date().getFullYear());
+        const year = String(new Date().getFullYear());
 
-  // 1) Cerca dentro lo scope corrente (container Barba o document)
-  const scopedRoot = scope?.querySelectorAll ? scope : document;
-  const scopedEls = scopedRoot.querySelectorAll("[data-dynamic-year]");
+        // 1) Cerca dentro lo scope corrente (container Barba o document)
+        const scopedRoot = scope?.querySelectorAll ? scope : document;
+        const scopedEls = scopedRoot.querySelectorAll("[data-dynamic-year]");
 
-  // 2) Cerca anche in tutto il documento (per elementi globali fuori container)
-  const docEls = document.querySelectorAll("[data-dynamic-year]");
+        // 2) Cerca anche in tutto il documento (per elementi globali fuori container)
+        const docEls = document.querySelectorAll("[data-dynamic-year]");
 
-  // 3) Deduplica (nel caso un elemento sia in entrambe le liste)
-  const all = new Set([...scopedEls, ...docEls]);
+        // 3) Deduplica (nel caso un elemento sia in entrambe le liste)
+        const all = new Set([...scopedEls, ...docEls]);
 
-  all.forEach((el) => {
-    el.textContent = year;
-  });
+        all.forEach((el) => {
+            el.textContent = year;
+        });
 
-  return () => {};
-}
-
-  /* =========================
-     SLIDERS (Swiper, per-container)
-  ========================= */
-
-  function readBoolAttr(el, name, fallback) {
-    if (!el) return !!fallback;
-    const v = el.getAttribute(name);
-    if (v == null || v === "") return !!fallback;
-    return v === "true";
-  }
-
-  function readNumAttr(el, name, fallback) {
-    if (!el) return Number(fallback || 0);
-    const v = el.getAttribute(name);
-    const n = Number(v);
-    return Number.isFinite(n) ? n : Number(fallback || 0);
-  }
-
-  function readStrAttr(el, name, fallback) {
-    if (!el) return String(fallback || "");
-    const v = el.getAttribute(name);
-    return v == null ? String(fallback || "") : String(v);
-  }
-
-  function getSliderVariant(component) {
-    const attr = CONFIG.sliders?.variantAttr || "data-slider-variant";
-    const def = CONFIG.sliders?.defaultVariant || "default";
-    const v = (component?.getAttribute?.(attr) || "").trim().toLowerCase();
-    return v || def;
-  }
-
-  function getSliderConfigFor(component) {
-    const base = CONFIG.sliders?.defaults || {};
-    const variants = CONFIG.sliders?.variants || {};
-    const variantName = getSliderVariant(component);
-    const variant = variants[variantName] || variants[CONFIG.sliders?.defaultVariant || "default"] || {};
-
-    // Merge order: defaults -> variant
-    return {
-      name: variantName,
-      ...base,
-      ...variant,
-    };
-  }
-
-  function normalizeSliderDom(component, swiperWrapper) {
-    // Normalizzazione DOM (Webflow wrappers)
-    flattenDisplayContents(swiperWrapper);
-
-    // removeCMSList() exists elsewhere in the file (used in your previous slider code)
-    // Keep it optional for safety.
-    try {
-      if (typeof removeCMSList === "function") removeCMSList(swiperWrapper);
-    } catch (_) {}
-
-    // Ensure slides have the correct class
-    [...swiperWrapper.children].forEach((el) => el.classList.add("swiper-slide"));
-
-    // CSS hook: slide count (useful for your CSS width formula)
-    const slideCount = swiperWrapper.children.length;
-    component.style.setProperty("--slide-count", String(Math.max(slideCount, 1)));
-
-    return slideCount;
-  }
-
-  function initSliders(scope = document) {
-    if (!CONFIG.sliders?.enabled) return () => {};
-
-    const SwiperClass = window.Swiper;
-    if (!SwiperClass) {
-      log("[SLIDERS] Swiper not found, skip");
-      return () => {};
+        return () => { };
     }
 
-    const root = getRoot(scope);
-    const selector = CONFIG.sliders?.componentSelector || "[data-slider]";
-    const components = root.querySelectorAll(selector);
-    if (!components.length) return () => {};
+    /* =========================
+       SLIDERS (Swiper, per-container)
+    ========================= */
 
-    const instances = [];
+    function readBoolAttr(el, name, fallback) {
+        if (!el) return !!fallback;
+        const v = el.getAttribute(name);
+        if (v == null || v === "") return !!fallback;
+        return v === "true";
+    }
 
-    components.forEach((component) => {
-      if (component.dataset.scriptInitialized === "true") return;
-      component.dataset.scriptInitialized = "true";
+    function readNumAttr(el, name, fallback) {
+        if (!el) return Number(fallback || 0);
+        const v = el.getAttribute(name);
+        const n = Number(v);
+        return Number.isFinite(n) ? n : Number(fallback || 0);
+    }
 
-      const swiperElement = component.querySelector(".slider_element");
-      const swiperWrapper = component.querySelector(".slider_list");
-      if (!swiperElement || !swiperWrapper) return;
+    function readStrAttr(el, name, fallback) {
+        if (!el) return String(fallback || "");
+        const v = el.getAttribute(name);
+        return v == null ? String(fallback || "") : String(v);
+    }
 
-      const cfg = getSliderConfigFor(component);
+    function getSliderVariant(component) {
+        const attr = CONFIG.sliders?.variantAttr || "data-slider-variant";
+        const def = CONFIG.sliders?.defaultVariant || "default";
+        const v = (component?.getAttribute?.(attr) || "").trim().toLowerCase();
+        return v || def;
+    }
 
-      // DOM normalization (always), then optional behaviors (variant-driven)
-      if (cfg.pruneEmptySlides === false) {
-        // temporarily bypass pruneEmptySlides by shadowing the function call
-        // We still normalize display contents + CMS list.
+    function getSliderConfigFor(component) {
+        const base = CONFIG.sliders?.defaults || {};
+        const variants = CONFIG.sliders?.variants || {};
+        const variantName = getSliderVariant(component);
+        const variant = variants[variantName] || variants[CONFIG.sliders?.defaultVariant || "default"] || {};
+
+        // Merge order: defaults -> variant
+        return {
+            name: variantName,
+            ...base,
+            ...variant,
+        };
+    }
+
+    function normalizeSliderDom(component, swiperWrapper) {
+        // Normalizzazione DOM (Webflow wrappers)
         flattenDisplayContents(swiperWrapper);
+
+        // removeCMSList() exists elsewhere in the file (used in your previous slider code)
+        // Keep it optional for safety.
         try {
-          if (typeof removeCMSList === "function") removeCMSList(swiperWrapper);
-        } catch (_) {}
+            if (typeof removeCMSList === "function") removeCMSList(swiperWrapper);
+        } catch (_) { }
+
+        // Ensure slides have the correct class
         [...swiperWrapper.children].forEach((el) => el.classList.add("swiper-slide"));
 
+        // CSS hook: slide count (useful for your CSS width formula)
         const slideCount = swiperWrapper.children.length;
-        if (cfg.setCssSlideCount !== false) {
-          component.style.setProperty("--slide-count", String(Math.max(slideCount, 1)));
+        component.style.setProperty("--slide-count", String(Math.max(slideCount, 1)));
+
+        return slideCount;
+    }
+
+    function initSliders(scope = document) {
+        if (!CONFIG.sliders?.enabled) return () => { };
+
+        const SwiperClass = window.Swiper;
+        if (!SwiperClass) {
+            log("[SLIDERS] Swiper not found, skip");
+            return () => { };
         }
 
-        if (slideCount <= 0) {
-          // Nothing to init: avoid Swiper crash (updateSlidesClasses expects at least one slide)
-          delete component.dataset.scriptInitialized;
-          return;
-        }
+        const root = getRoot(scope);
+        const selector = CONFIG.sliders?.componentSelector || "[data-slider]";
+        const components = root.querySelectorAll(selector);
+        if (!components.length) return () => { };
 
-        // Hide controls if single slide (variant-driven)
-        if (cfg.hideControlsIfSingle && slideCount <= 1) {
-          const controls = component.querySelector(".slider_controls");
-          if (controls) controls.style.display = "none";
-          return;
-        }
-      } else {
-        // Optional: prune empty slides (variant-driven)
-        if (cfg.pruneEmptySlides) {
-          try { pruneEmptySlides(swiperWrapper); } catch (_) {}
-        }
+        const instances = [];
 
-        const slideCount = normalizeSliderDom(component, swiperWrapper);
+        components.forEach((component) => {
+            if (component.dataset.scriptInitialized === "true") return;
+            component.dataset.scriptInitialized = "true";
 
-        if (slideCount <= 0) {
-          // Nothing to init: avoid Swiper crash (updateSlidesClasses expects at least one slide)
-          delete component.dataset.scriptInitialized;
-          return;
-        }
+            const swiperElement = component.querySelector(".slider_element");
+            const swiperWrapper = component.querySelector(".slider_list");
+            if (!swiperElement || !swiperWrapper) return;
 
-        // Hide controls if single slide (variant-driven)
-        if (cfg.hideControlsIfSingle && slideCount <= 1) {
-          const controls = component.querySelector(".slider_controls");
-          if (controls) controls.style.display = "none";
-          return;
-        }
-      }
+            const cfg = getSliderConfigFor(component);
 
-      // Attribute overrides (last layer)
-      const followFinger = readBoolAttr(swiperElement, "data-follow-finger", cfg.followFinger);
-      const freeMode = readBoolAttr(swiperElement, "data-free-mode", cfg.freeMode);
-      const mousewheel = readBoolAttr(swiperElement, "data-mousewheel", cfg.mousewheel);
-      const slideToClickedSlide = readBoolAttr(swiperElement, "data-slide-to-clicked", cfg.slideToClickedSlide);
-      const speed = readNumAttr(swiperElement, "data-speed", cfg.speed);
-      const loop = readBoolAttr(swiperElement, "data-loop", cfg.loop);
+            // DOM normalization (always), then optional behaviors (variant-driven)
+            if (cfg.pruneEmptySlides === false) {
+                // temporarily bypass pruneEmptySlides by shadowing the function call
+                // We still normalize display contents + CMS list.
+                flattenDisplayContents(swiperWrapper);
+                try {
+                    if (typeof removeCMSList === "function") removeCMSList(swiperWrapper);
+                } catch (_) { }
+                [...swiperWrapper.children].forEach((el) => el.classList.add("swiper-slide"));
 
-      // Swiper loop requires at least 2 slides; force-disable when not possible.
-      const effectiveLoop = loop && swiperWrapper.children.length > 1;
+                const slideCount = swiperWrapper.children.length;
+                if (cfg.setCssSlideCount !== false) {
+                    component.style.setProperty("--slide-count", String(Math.max(slideCount, 1)));
+                }
 
-      const effectAttr = readStrAttr(swiperElement, "data-effect", "").trim().toLowerCase();
-      const effect = effectAttr || (cfg.effect || "");
+                if (slideCount <= 0) {
+                    // Nothing to init: avoid Swiper crash (updateSlidesClasses expects at least one slide)
+                    delete component.dataset.scriptInitialized;
+                    return;
+                }
 
-      const swiperConfig = {
-        slidesPerView: cfg.slidesPerView,
-        centeredSlides: cfg.centeredSlides,
-        autoHeight: cfg.autoHeight,
-        speed,
+                // Hide controls if single slide (variant-driven)
+                if (cfg.hideControlsIfSingle && slideCount <= 1) {
+                    const controls = component.querySelector(".slider_controls");
+                    if (controls) controls.style.display = "none";
+                    return;
+                }
+            } else {
+                // Optional: prune empty slides (variant-driven)
+                if (cfg.pruneEmptySlides) {
+                    try { pruneEmptySlides(swiperWrapper); } catch (_) { }
+                }
 
-        followFinger,
-        freeMode,
-        slideToClickedSlide,
+                const slideCount = normalizeSliderDom(component, swiperWrapper);
 
-        loop: effectiveLoop,
-        loopAdditionalSlides: cfg.loopAdditionalSlides,
+                if (slideCount <= 0) {
+                    // Nothing to init: avoid Swiper crash (updateSlidesClasses expects at least one slide)
+                    delete component.dataset.scriptInitialized;
+                    return;
+                }
 
-        mousewheel: {
-          enabled: mousewheel,
-          forceToAxis: cfg.mousewheelForceToAxis,
-        },
-
-        keyboard: {
-          enabled: cfg.keyboardEnabled,
-          onlyInViewport: cfg.keyboardOnlyInViewport,
-        },
-
-        navigation: {
-          nextEl: component.querySelector("[data-slider='next'] button"),
-          prevEl: component.querySelector("[data-slider='previous'] button"),
-        },
-
-        pagination: {
-          el: component.querySelector(".slider_bullet_list"),
-          bulletActiveClass: "is-active",
-          bulletClass: "slider_bullet_item",
-          bulletElement: "button",
-          clickable: true,
-        },
-
-        slideActiveClass: "is-active",
-        slideDuplicateActiveClass: "is-active",
-      };
-
-      // Effect handling
-      if (effect === "fade") {
-        swiperConfig.effect = "fade";
-        swiperConfig.fadeEffect = { crossFade: !!cfg.fadeCrossFade };
-      }
-
-      try {
-        const instance = new SwiperClass(swiperElement, swiperConfig);
-        component.__swiper = instance;
-        instances.push(component);
-
-        log(`[SLIDERS] init OK (${cfg.name})`, component);
-      } catch (e) {
-        console.warn("[SLIDERS] init error:", e);
-      }
-    });
-
-    // Cleanup per scope
-    // NOTE: two-phase cleanup.
-    // - "soft": disable interactions immediately (no visual reset)
-    // - "hard": destroy Swiper instances (still keep cleanStyles=false)
-    // Default (no args) remains HARD to preserve existing behavior.
-    return (mode = "hard") => {
-      const phase = String(mode || "hard").toLowerCase();
-      instances.forEach((component) => {
-        const instance = component.__swiper;
-        // Always stop reacting to input immediately.
-        try { component.style.pointerEvents = "none"; } catch (_) {}
-        try {
-          const el = component.querySelector(".slider_element");
-          if (el) el.style.pointerEvents = "none";
-        } catch (_) {}
-        if (phase === "soft") {
-          // Do NOT destroy: keep current translate/active slide to avoid jump-to-first-slide.
-          // Best-effort: disable internal listeners without touching layout.
-          try {
-            if (instance && typeof instance.disable === "function") instance.disable();
-          } catch (_) {}
-          try {
-            if (instance && typeof instance.detachEvents === "function") instance.detachEvents();
-          } catch (_) {}
-          try {
-            if (instance) {
-              instance.allowTouchMove = false;
-              instance.enabled = false;
+                // Hide controls if single slide (variant-driven)
+                if (cfg.hideControlsIfSingle && slideCount <= 1) {
+                    const controls = component.querySelector(".slider_controls");
+                    if (controls) controls.style.display = "none";
+                    return;
+                }
             }
-          } catch (_) {}
-          return;
-        }
-        // HARD phase: remove instance (but keep cleanStyles=false to avoid visible snap).
-        try {
-          // destroy(deleteInstance=true, cleanStyles=false)
-          instance?.destroy?.(true, false);
-        } catch (_) {}
-        component.__swiper = null;
-        try { delete component.dataset.scriptInitialized; } catch (_) {}
-      });
-    };
-  }
+
+            // Attribute overrides (last layer)
+            const followFinger = readBoolAttr(swiperElement, "data-follow-finger", cfg.followFinger);
+            const freeMode = readBoolAttr(swiperElement, "data-free-mode", cfg.freeMode);
+            const mousewheel = readBoolAttr(swiperElement, "data-mousewheel", cfg.mousewheel);
+            const slideToClickedSlide = readBoolAttr(swiperElement, "data-slide-to-clicked", cfg.slideToClickedSlide);
+            const speed = readNumAttr(swiperElement, "data-speed", cfg.speed);
+            const loop = readBoolAttr(swiperElement, "data-loop", cfg.loop);
+
+            // Swiper loop requires at least 2 slides; force-disable when not possible.
+            const effectiveLoop = loop && swiperWrapper.children.length > 1;
+
+            const effectAttr = readStrAttr(swiperElement, "data-effect", "").trim().toLowerCase();
+            const effect = effectAttr || (cfg.effect || "");
+
+            const swiperConfig = {
+                slidesPerView: cfg.slidesPerView,
+                centeredSlides: cfg.centeredSlides,
+                autoHeight: cfg.autoHeight,
+                speed,
+
+                followFinger,
+                freeMode,
+                slideToClickedSlide,
+
+                loop: effectiveLoop,
+                loopAdditionalSlides: cfg.loopAdditionalSlides,
+
+                mousewheel: {
+                    enabled: mousewheel,
+                    forceToAxis: cfg.mousewheelForceToAxis,
+                },
+
+                keyboard: {
+                    enabled: cfg.keyboardEnabled,
+                    onlyInViewport: cfg.keyboardOnlyInViewport,
+                },
+
+                navigation: {
+                    nextEl: component.querySelector("[data-slider='next'] button"),
+                    prevEl: component.querySelector("[data-slider='previous'] button"),
+                },
+
+                pagination: {
+                    el: component.querySelector(".slider_bullet_list"),
+                    bulletActiveClass: "is-active",
+                    bulletClass: "slider_bullet_item",
+                    bulletElement: "button",
+                    clickable: true,
+                },
+
+                slideActiveClass: "is-active",
+                slideDuplicateActiveClass: "is-active",
+            };
+
+            // Effect handling
+            if (effect === "fade") {
+                swiperConfig.effect = "fade";
+                swiperConfig.fadeEffect = { crossFade: !!cfg.fadeCrossFade };
+            }
+
+            try {
+                const instance = new SwiperClass(swiperElement, swiperConfig);
+                component.__swiper = instance;
+                instances.push(component);
+
+                log(`[SLIDERS] init OK (${cfg.name})`, component);
+            } catch (e) {
+                console.warn("[SLIDERS] init error:", e);
+            }
+        });
+
+        // Cleanup per scope
+        // NOTE: two-phase cleanup.
+        // - "soft": disable interactions immediately (no visual reset)
+        // - "hard": destroy Swiper instances (still keep cleanStyles=false)
+        // Default (no args) remains HARD to preserve existing behavior.
+        return (mode = "hard") => {
+            const phase = String(mode || "hard").toLowerCase();
+            instances.forEach((component) => {
+                const instance = component.__swiper;
+                // Always stop reacting to input immediately.
+                try { component.style.pointerEvents = "none"; } catch (_) { }
+                try {
+                    const el = component.querySelector(".slider_element");
+                    if (el) el.style.pointerEvents = "none";
+                } catch (_) { }
+                if (phase === "soft") {
+                    // Do NOT destroy: keep current translate/active slide to avoid jump-to-first-slide.
+                    // Best-effort: disable internal listeners without touching layout.
+                    try {
+                        if (instance && typeof instance.disable === "function") instance.disable();
+                    } catch (_) { }
+                    try {
+                        if (instance && typeof instance.detachEvents === "function") instance.detachEvents();
+                    } catch (_) { }
+                    try {
+                        if (instance) {
+                            instance.allowTouchMove = false;
+                            instance.enabled = false;
+                        }
+                    } catch (_) { }
+                    return;
+                }
+                // HARD phase: remove instance (but keep cleanStyles=false to avoid visible snap).
+                try {
+                    // destroy(deleteInstance=true, cleanStyles=false)
+                    instance?.destroy?.(true, false);
+                } catch (_) { }
+                component.__swiper = null;
+                try { delete component.dataset.scriptInitialized; } catch (_) { }
+            });
+        };
+    }
+
+
+
+
 
 
     /* =========================
@@ -2429,103 +2435,103 @@ function initMenu() {
     }
 
 
-/* =========================
-   THEME SCROLL ANIMATION (per-container)
-   - Anima body theme su scroll-trigger
-   - Richiede colorThemes global API
-   - Cleanup deterministic per Barba
-   - Usa data-animate-theme-to="none" per disabilitare
-========================= */
+    /* =========================
+       THEME SCROLL ANIMATION (per-container)
+       - Anima body theme su scroll-trigger
+       - Richiede colorThemes global API
+       - Cleanup deterministic per Barba
+       - Usa data-animate-theme-to="none" per disabilitare
+    ========================= */
 
-function initThemeScrollAnimation(scope = document) {
-    if (!gsap || !ScrollTrigger) {
-        log("[THEME SCROLL] GSAP o ScrollTrigger mancante, skip");
-        return () => { };
-    }
-
-    const root = getRoot(scope);
-    const triggers = root.querySelectorAll("[data-animate-theme-to]");
-    if (!triggers.length) return () => { };
-
-    const scrollTriggers = [];
-
-    // NUOVO: Funzione di init vera e propria
-    const initTriggers = () => {
-        // Controlla di nuovo se colorThemes è pronto
-        if (!window.colorThemes || typeof window.colorThemes.getTheme !== "function") {
-            log("[THEME SCROLL] colorThemes API ancora non disponibile");
-            return;
+    function initThemeScrollAnimation(scope = document) {
+        if (!gsap || !ScrollTrigger) {
+            log("[THEME SCROLL] GSAP o ScrollTrigger mancante, skip");
+            return () => { };
         }
 
-        triggers.forEach((trigger) => {
-            const themeName = trigger.getAttribute("data-animate-theme-to");
-            const brandName = trigger.getAttribute("data-animate-brand-to");
+        const root = getRoot(scope);
+        const triggers = root.querySelectorAll("[data-animate-theme-to]");
+        if (!triggers.length) return () => { };
 
-            if (!themeName || themeName.trim() === "" || themeName.toLowerCase() === "none") {
+        const scrollTriggers = [];
+
+        // NUOVO: Funzione di init vera e propria
+        const initTriggers = () => {
+            // Controlla di nuovo se colorThemes è pronto
+            if (!window.colorThemes || typeof window.colorThemes.getTheme !== "function") {
+                log("[THEME SCROLL] colorThemes API ancora non disponibile");
                 return;
             }
 
-            let themeVars;
-            try {
-                themeVars = window.colorThemes.getTheme(themeName, brandName);
-            } catch (e) {
-                console.warn("[THEME SCROLL] Errore nel recupero tema:", e);
-                return;
-            }
+            triggers.forEach((trigger) => {
+                const themeName = trigger.getAttribute("data-animate-theme-to");
+                const brandName = trigger.getAttribute("data-animate-brand-to");
 
-            if (!themeVars || typeof themeVars !== "object") {
-                console.warn("[THEME SCROLL] Tema non valido:", themeName, brandName);
-                return;
-            }
+                if (!themeName || themeName.trim() === "" || themeName.toLowerCase() === "none") {
+                    return;
+                }
 
-            const st = ScrollTrigger.create({
-                trigger: trigger,
-                start: "top center",
-                end: "bottom center",
-                onToggle: ({ isActive }) => {
-                    if (isActive) {
-                        gsap.to(document.body, {
-                            ...themeVars,
-                            duration: 0.6,
-                            ease: "power2.out",
-                            overwrite: "auto",
-                        });
-                        log(`[THEME SCROLL] Activated: ${themeName}${brandName ? ` (${brandName})` : ""}`);
-                    }
-                },
+                let themeVars;
+                try {
+                    themeVars = window.colorThemes.getTheme(themeName, brandName);
+                } catch (e) {
+                    console.warn("[THEME SCROLL] Errore nel recupero tema:", e);
+                    return;
+                }
+
+                if (!themeVars || typeof themeVars !== "object") {
+                    console.warn("[THEME SCROLL] Tema non valido:", themeName, brandName);
+                    return;
+                }
+
+                const st = ScrollTrigger.create({
+                    trigger: trigger,
+                    start: "top center",
+                    end: "bottom center",
+                    onToggle: ({ isActive }) => {
+                        if (isActive) {
+                            gsap.to(document.body, {
+                                ...themeVars,
+                                duration: 0.6,
+                                ease: "power2.out",
+                                overwrite: "auto",
+                            });
+                            log(`[THEME SCROLL] Activated: ${themeName}${brandName ? ` (${brandName})` : ""}`);
+                        }
+                    },
+                });
+
+                scrollTriggers.push(st);
             });
 
-            scrollTriggers.push(st);
-        });
-
-        log(`[THEME SCROLL] Init OK: ${scrollTriggers.length} triggers`);
-    };
-
-    // NUOVO: Se colorThemes è già disponibile, init subito
-    if (window.colorThemes && typeof window.colorThemes.getTheme === "function") {
-        initTriggers();
-    } else {
-        // Altrimenti aspetta l'evento
-        log("[THEME SCROLL] Aspetto evento colorThemesReady...");
-        
-        const onReady = () => {
-            initTriggers();
-            document.removeEventListener("colorThemesReady", onReady);
+            log(`[THEME SCROLL] Init OK: ${scrollTriggers.length} triggers`);
         };
-        
-        document.addEventListener("colorThemesReady", onReady);
-    }
 
-    // Cleanup
-    return () => {
-        scrollTriggers.forEach((st) => {
-            try {
-                st.kill();
-            } catch (_) { }
-        });
-        scrollTriggers.length = 0;
-    };
-}
+        // NUOVO: Se colorThemes è già disponibile, init subito
+        if (window.colorThemes && typeof window.colorThemes.getTheme === "function") {
+            initTriggers();
+        } else {
+            // Altrimenti aspetta l'evento
+            log("[THEME SCROLL] Aspetto evento colorThemesReady...");
+
+            const onReady = () => {
+                initTriggers();
+                document.removeEventListener("colorThemesReady", onReady);
+            };
+
+            document.addEventListener("colorThemesReady", onReady);
+        }
+
+        // Cleanup
+        return () => {
+            scrollTriggers.forEach((st) => {
+                try {
+                    st.kill();
+                } catch (_) { }
+            });
+            scrollTriggers.length = 0;
+        };
+    }
 
     /* =========================
     MAIL BUTTON HOVER THEME (per-container)
@@ -3172,13 +3178,13 @@ function initThemeScrollAnimation(scope = document) {
     function initStickyTop(scope = document) {
         const root = getRoot(scope);
         const layout = root.querySelector('[data-wf--layout--variant="sticky-left"]');
-        if (!layout) return () => {};
+        if (!layout) return () => { };
 
         const col = layout.querySelector('.u-layout-column-1');
-        if (!col) return () => {};
+        if (!col) return () => { };
 
         const img = col.querySelector('.u-image-wrapper');
-        if (!img) return () => {};
+        if (!img) return () => { };
 
         function update() {
             const imgH = img.offsetHeight;
@@ -3202,68 +3208,68 @@ function initThemeScrollAnimation(scope = document) {
     ========================= */
     // Gestisce navigazione next/prev nei CMS collection list di Webflow
     function initCmsNextPrev(scope = document) {
-    const root = getRoot(scope);
-    const components = root.querySelectorAll('[tr-cmsnext-element="component"]');
+        const root = getRoot(scope);
+        const components = root.querySelectorAll('[tr-cmsnext-element="component"]');
 
-    components.forEach((component) => {
-        const cmsList = component.querySelector(".w-dyn-items");
-        if (!cmsList) return;
+        components.forEach((component) => {
+            const cmsList = component.querySelector(".w-dyn-items");
+            if (!cmsList) return;
 
-        const items = [...cmsList.children];
-        const noResultEl = component.querySelector('[tr-cmsnext-element="no-result"]');
-        const currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
+            const items = [...cmsList.children];
+            const noResultEl = component.querySelector('[tr-cmsnext-element="no-result"]');
+            const currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
 
-        const currentIndex = items.findIndex((item) => {
-            if (item.querySelector(".w--current")) return true;
-            const links = item.querySelectorAll("a[href]");
-            return [...links].some((a) => {
-                const href = (a.getAttribute("href") || "").replace(/\/+$/, "") || "/";
-                return href === currentPath;
+            const currentIndex = items.findIndex((item) => {
+                if (item.querySelector(".w--current")) return true;
+                const links = item.querySelectorAll("a[href]");
+                return [...links].some((a) => {
+                    const href = (a.getAttribute("href") || "").replace(/\/+$/, "") || "/";
+                    return href === currentPath;
+                });
             });
+
+            if (currentIndex === -1) return;
+
+            const currentItem = items[currentIndex];
+            const loop = component.getAttribute("tr-cmsnext-loop") === "true";
+            const showPrev = component.getAttribute("tr-cmsnext-showprev") === "true";
+            const showAll = component.getAttribute("tr-cmsnext-showall") === "true";
+            const hideEmpty = component.getAttribute("tr-cmsnext-hideempty") === "true";
+
+            let nextItem = items[currentIndex + 1] || null;
+            let prevItem = items[currentIndex - 1] || null;
+
+            if (loop) {
+                if (!nextItem) nextItem = items[0];
+                if (!prevItem) prevItem = items[items.length - 1];
+            }
+
+            if (showAll) {
+                if (prevItem) prevItem.classList.add("is-prev");
+                currentItem.classList.add("is-current");
+                if (nextItem) nextItem.classList.add("is-next");
+                return;
+            }
+
+            const displayItem = showPrev ? prevItem : nextItem;
+
+            items.forEach((item) => {
+                if (item !== displayItem) item.remove();
+            });
+
+            if (!displayItem) {
+                if (noResultEl) noResultEl.style.display = "block";
+                if (hideEmpty) component.style.display = "none";
+                return;
+            }
+
+            // Sovrascrivi il numero con "Next" (o "Prev")
+            const numberEl = displayItem.querySelector(".works_number");
+            if (numberEl) {
+                numberEl.textContent = showPrev ? "Prev" : "Next";
+            }
         });
-
-        if (currentIndex === -1) return;
-
-        const currentItem = items[currentIndex];
-        const loop = component.getAttribute("tr-cmsnext-loop") === "true";
-        const showPrev = component.getAttribute("tr-cmsnext-showprev") === "true";
-        const showAll = component.getAttribute("tr-cmsnext-showall") === "true";
-        const hideEmpty = component.getAttribute("tr-cmsnext-hideempty") === "true";
-
-        let nextItem = items[currentIndex + 1] || null;
-        let prevItem = items[currentIndex - 1] || null;
-
-        if (loop) {
-            if (!nextItem) nextItem = items[0];
-            if (!prevItem) prevItem = items[items.length - 1];
-        }
-
-        if (showAll) {
-            if (prevItem) prevItem.classList.add("is-prev");
-            currentItem.classList.add("is-current");
-            if (nextItem) nextItem.classList.add("is-next");
-            return;
-        }
-
-        const displayItem = showPrev ? prevItem : nextItem;
-
-        items.forEach((item) => {
-            if (item !== displayItem) item.remove();
-        });
-
-        if (!displayItem) {
-            if (noResultEl) noResultEl.style.display = "block";
-            if (hideEmpty) component.style.display = "none";
-            return;
-        }
-
-        // Sovrascrivi il numero con "Next" (o "Prev")
-        const numberEl = displayItem.querySelector(".works_number");
-        if (numberEl) {
-            numberEl.textContent = showPrev ? "Prev" : "Next";
-        }
-    });
-}
+    }
 
     /* =========================
     BARBA
@@ -3276,6 +3282,7 @@ function initThemeScrollAnimation(scope = document) {
     let currentThemeScrollCleanup = null; // <-- NUOVO
     let currentMailButtonCleanup = null; // <-- NUOVO
     let currentStickyTopCleanup = null;
+
 
     barba.init({
         preventRunning: true,
@@ -3326,6 +3333,7 @@ function initThemeScrollAnimation(scope = document) {
 
                     initCmsNextPrev(data.next.container);
 
+
                     await runLoader(() => {
                         currentReveal = createRevealSequence(data.next.container);
                     });
@@ -3363,6 +3371,7 @@ function initThemeScrollAnimation(scope = document) {
 
                     currentStickyTopCleanup?.();
                     currentStickyTopCleanup = null;
+
 
                     killAllScrollTriggers();
 
@@ -3408,6 +3417,7 @@ function initThemeScrollAnimation(scope = document) {
                     currentStickyTopCleanup = initStickyTop(data.next.container);
 
                     initCmsNextPrev(data.next.container);
+
 
                     return transitionEnter(data, () => {
                         currentReveal = createRevealSequence(data.next.container);
