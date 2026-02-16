@@ -3149,20 +3149,25 @@ CODE MAP
         // Cleanup finale (dopo che lo slide è completo)
         const cleanupAt = slideStart + CONFIG.transition.slideDuration + 0.05;
         tl.call(() => {
-            // Reset positioning del nuovo container
-            gsap.set(next, {
-                clearProps: "position,top,left,width,zIndex,y",
-            });
+            // 1. Nascondi SUBITO il container corrente (previeni doppia visibilità)
+            gsap.set(current, { autoAlpha: 0, display: "none" });
 
-            // Scroll to top e unlock
+            // 2. Scroll to top PRIMA di togliere il fixed
             hardScrollTop();
 
-            if (ScrollTrigger) {
-                requestAnimationFrame(() => ScrollTrigger.refresh(true));
-            }
+            // 3. Togli fixed in due step per evitare il reflow visibile
+            gsap.set(next, { position: "relative", top: "auto", left: "auto", width: "", y: 0, zIndex: "" });
 
-            scrollUnlock();
-            log("Enter: slide transition cleanup done");
+            requestAnimationFrame(() => {
+                gsap.set(next, { clearProps: "position,top,left,width,zIndex,y" });
+
+                if (ScrollTrigger) {
+                    requestAnimationFrame(() => ScrollTrigger.refresh(true));
+                }
+
+                scrollUnlock();
+                log("Enter: slide transition cleanup done");
+            });
         }, null, cleanupAt);
 
         return tl;
@@ -3283,6 +3288,7 @@ CODE MAP
 
     barba.init({
         preventRunning: true,
+        //prefetch: true,
         debug: CONFIG.debug,
 
         transitions: [
