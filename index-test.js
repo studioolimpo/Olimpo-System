@@ -857,6 +857,9 @@ CODE MAP
                 return;
             }
 
+            // Loop stability (required with slidesPerView:'auto' + centeredSlides)
+            const safeLoopedSlides = Math.max(1, Math.min(slideCount, 12));
+
             // Read attrs from swiper element
             const followFinger = swiperElement.getAttribute("data-follow-finger") !== "false";
             const freeMode = swiperElement.getAttribute("data-free-mode") === "true";
@@ -898,7 +901,9 @@ CODE MAP
                     autoHeight: false,
                     speed,
                     loop: loop && slideCount > 1,
-                    loopAdditionalSlides: 10,
+                    // Loop stability (required with slidesPerView:'auto' + centeredSlides)
+                    loopedSlides: safeLoopedSlides,
+                    loopAdditionalSlides: safeLoopedSlides,
                     followFinger,
                     freeMode,
                     slideToClickedSlide,
@@ -942,6 +947,7 @@ CODE MAP
                         : {}),
                     slideActiveClass: "is-active",
                     slideDuplicateActiveClass: "is-active",
+                    // Ensure no initialSlide override for 'works' variant
                 });
             } catch (e) {
                 console.warn("[SLIDERS] Swiper init failed:", e);
@@ -1351,17 +1357,36 @@ CODE MAP
         let navTransition = navWrap.querySelector(".nav_transition");
         let menuFooter = navWrap.querySelector(".nav_menu_footer");
 
+        let barbaContainer = document.querySelector("[data-barba='container']");
+        const SHIFT_Y = 30;
+        const SHIFT_DURATION = 0.9;
+        const SHIFT_EASE = "power2.out";
+
         let tl = gsap.timeline();
 
         const openNav = () => {
             navWrap.setAttribute("data-nav", "open");
+            barbaContainer = document.querySelector("[data-barba='container']");
+
             tl.clear()
                 .set(navWrap, { display: "block" })
                 .set(menu, { yPercent: 0 }, "<")
                 .set(navTransition, { autoAlpha: 0 }, "<")
+                // Reset stato residuo da transitionNav/closeNav
+                .set(menuDivider, { autoAlpha: 1, scaleX: 0 }, "<")
+                .set(menuLinks, { autoAlpha: 0, yPercent: 120 }, "<")
+                .set(menuIndexs, { autoAlpha: 0, yPercent: 80 }, "<")
+                .set(menuFooter, { autoAlpha: 0, yPercent: 30 }, "<")
+                .set(menuButtonLayout, { yPercent: 0 }, "<")
+                .set(overlay, { autoAlpha: 0 }, "<")
+                .set(bgPanels, { yPercent: 101 }, "<")
+                .set(menuList, { yPercent: 40 }, "<")
+                // Animazioni di apertura
                 .fromTo(overlay, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.8, ease: "power2.out" }, "<")
                 .fromTo(bgPanels, { yPercent: 101 }, { yPercent: 0, duration: 0.85 }, "<0.05")
                 .fromTo(menuButtonLayout, { yPercent: 0 }, { yPercent: -150, duration: 1 }, "<")
+                // Micro lift: container sale leggermente
+                .to(barbaContainer, { y: -SHIFT_Y, duration: SHIFT_DURATION, ease: SHIFT_EASE }, "<0.05")
                 .fromTo(menuList, { yPercent: 40 }, { yPercent: 0, duration: 1 }, "<0.15")
                 .fromTo(menuLinks, { autoAlpha: 0, yPercent: 120 }, { yPercent: 0, autoAlpha: 1, duration: 0.9, stagger: 0.08 }, "<0.1")
                 .fromTo(menuIndexs, { yPercent: 80, autoAlpha: 0 }, { yPercent: 0, autoAlpha: 1, duration: 0.7, stagger: 0.08 }, "<0.05")
@@ -1371,27 +1396,49 @@ CODE MAP
 
         const closeNav = () => {
             navWrap.setAttribute("data-nav", "closed");
+            barbaContainer = document.querySelector("[data-barba='container']");
+
             tl.clear()
+                // Fase 1: chiudi contenuti menu (overlay ancora pieno)
                 .to(menuLinks, { yPercent: -60, autoAlpha: 0, duration: 0.45, stagger: 0.03, ease: "mainOut" })
                 .to(menuIndexs, { autoAlpha: 0, duration: 0.3 }, "<")
                 .to(menuDivider, { scaleX: 0, transformOrigin: "right center", duration: 0.4, ease: "mainOut" }, "<")
                 .to(menuFooter, { autoAlpha: 0, yPercent: 20, duration: 0.35 }, "<")
-                .to(bgPanels, { yPercent: -101, duration: 0.65, ease: "mainOut" }, "-=0.15")
-                .to(overlay, { autoAlpha: 0, duration: 0.5, ease: "power2.inOut" }, "<0.1")
-                .to(menuButtonLayout, { yPercent: 0, duration: 0.8 }, "<")
-                .set(navWrap, { display: "none" });
+                // Container accompagna verso 0 (ancora coperto dal menu)
+                .to(barbaContainer, { y: 0, duration: 0.3, ease: "power2.inOut" }, "<")
+                .to(menuButtonLayout, { yPercent: 0, duration: 0.9 }, "<")
+
+                // Fase 2: pannelli escono, ma overlay è ancora opaco — set invisibile
+                .set(barbaContainer, { y: SHIFT_Y })
+                .to(bgPanels, { yPercent: -101, duration: 0.65, ease: "mainOut" }, "<")
+
+                // Fase 3: overlay sfuma, container risale (unico movimento visibile: basso → alto)
+                .to(overlay, { autoAlpha: 0, duration: 0.5, ease: "power2.inOut" }, "<")
+                .to(barbaContainer, { y: 0, duration: SHIFT_DURATION, ease: SHIFT_EASE }, "<0.2")
+
+                .set(navWrap, { display: "none" })
+                .set(barbaContainer, { clearProps: "y" });
         };
 
         const transitionNav = () => {
             navWrap.setAttribute("data-nav", "closed");
+            barbaContainer = document.querySelector("[data-barba='container']");
+
             tl.clear()
                 .to(menuLinks, { yPercent: -40, autoAlpha: 0, duration: 0.35, stagger: 0.02, ease: "power2.in" })
                 .to([menuIndexs, menuDivider, menuFooter], { autoAlpha: 0, duration: 0.25 }, "<")
-                .to(navTransition, { autoAlpha: 1, duration: 0.45, ease: "power2.inOut" }, "-=0.1")
+                // Container torna a 0 (coperto)
+                .to(barbaContainer, { y: 0, duration: 0.3, ease: "power2.inOut" }, "<")
+                // Set invisibile prima che navTransition copra
+                .set(barbaContainer, { y: SHIFT_Y })
+                .to(navTransition, { autoAlpha: 1, duration: 0.45, ease: "power2.inOut" }, "<")
                 .to(menu, { yPercent: -40, duration: 0.5, ease: "power2.out" }, "<")
                 .to(overlay, { autoAlpha: 0, duration: 0.4 }, "<")
                 .to(menuButtonLayout, { yPercent: 0, duration: 0.6 }, "<0.15")
-                .set(navWrap, { display: "none" });
+                // Container risale (visibile)
+                .to(barbaContainer, { y: 0, duration: 0.4, ease: "power2.out" }, "<0.1")
+                .set(navWrap, { display: "none" })
+                .set(barbaContainer, { clearProps: "y" });
         };
 
         menuToggles.forEach((toggle) => {
@@ -1972,7 +2019,16 @@ CODE MAP
                 slideToClickedSlide,
 
                 loop: effectiveLoop,
-                loopAdditionalSlides: cfg.loopAdditionalSlides,
+                // Loop stability (required with slidesPerView:'auto' + centeredSlides)
+                ...(effectiveLoop
+                  ? {
+                      loopedSlides: Math.max(1, Math.min(swiperWrapper.children.length, 12)),
+                      loopAdditionalSlides: Math.max(
+                        Number(cfg.loopAdditionalSlides) || 0,
+                        Math.max(1, Math.min(swiperWrapper.children.length, 12))
+                      ),
+                    }
+                  : {}),
 
                 mousewheel: {
                     enabled: mousewheel,
@@ -2001,6 +2057,8 @@ CODE MAP
                 slideDuplicateActiveClass: "is-active",
             };
 
+            // Remove any initialSlide override for works variant
+            // (If initialSlide was set conditionally for works, it should not be set at all or always 0)
             // Effect handling
             if (effect === "fade") {
                 swiperConfig.effect = "fade";
@@ -3044,36 +3102,61 @@ CODE MAP
     ========================= */
     function transitionLeave(data) {
         const current = data?.current?.container;
-        const next = data?.next?.container;
 
-        // Soft cleanup sliders (evita snap durante la transizione)
-        try {
-            if (current && typeof current.__slidersCleanup === "function") {
-                current.__slidersCleanup("soft");
-            }
-        } catch (_) { }
-
-        log("Leave: overlay fade in + prepare slide (smooth timing)");
-
+        log("Leave: dark overlay + parallax shift");
         scrollLock();
 
-        // Trova l'overlay nel container corrente
-        const overlay = current?.querySelector(".transition_wrap");
+        // Transition wrap FUORI dal container (globale, persistente)
+        const transitionWrap = document.querySelector("[data-transition-wrap]");
+        const transitionDark = transitionWrap?.querySelector("[data-transition-dark]");
 
         const tl = gsap.timeline({
-            defaults: { ease: CONFIG.transition.leaveEase },
+            onComplete: () => {
+                // Rimuovi il vecchio container dal DOM (come Osmo)
+                try { current.remove(); } catch (_) { }
+            }
         });
 
-        // Fade in dell'overlay (copertura cinematografica)
-        if (overlay) {
-            gsap.set(overlay, { autoAlpha: 0 });
-            tl.to(overlay, {
-                autoAlpha: 1,
-                duration: CONFIG.transition.overlayFadeIn
-            });
+        if (!transitionWrap || !transitionDark) {
+            // Fallback se non c'è il transition wrap globale
+            tl.to(current, { autoAlpha: 0, duration: 0.4 });
+            return tl;
         }
 
-        // Reset tema a light durante l'overlay
+        // Registra ease parallax (idempotente)
+        if (!gsap.parseEase("parallax")) {
+            CustomEase.create("parallax", "0.7, 0.05, 0.13, 1");
+        }
+
+        // Layer setup
+        gsap.set(transitionWrap, { zIndex: 2 });
+
+        // Dark overlay a 80% (profondità, non copertura piena)
+        tl.fromTo(transitionDark,
+            { autoAlpha: 0 },
+            { autoAlpha: 0.8, duration: 1.2, ease: "parallax" },
+            0
+        );
+
+        // Current scivola via verso l'alto (parallasse lenta)
+        tl.fromTo(current,
+            { y: "0vh" },
+            { y: CONFIG.transition.leaveToY, duration: 1.2, ease: "parallax" },
+            0
+        );
+
+        // Micro lift nav (sale e sfuma durante la transizione)
+        const desktopNav = document.querySelector(CONFIG.scrollDir.desktopNavSelector);
+        if (desktopNav) {
+            tl.to(desktopNav, {
+                y: -12,
+                autoAlpha: 0,
+                duration: 0.5,
+                ease: "power2.in",
+            }, 0.1);
+        }
+
+        // Reset tema a light
         try {
             if (window.colorThemes && typeof window.colorThemes.getTheme === "function") {
                 const lightVars = window.colorThemes.getTheme("light");
@@ -3088,87 +3171,75 @@ CODE MAP
             }
         } catch (_) { }
 
+        // Reset overlay dark alla fine (pronto per la prossima transizione)
+        tl.set(transitionDark, { autoAlpha: 0 });
+
         return tl;
     }
 
     function transitionEnter(data, onHeroStart) {
-        const current = data?.current?.container;
         const next = data?.next?.container;
 
         preparePage(next);
 
-        // Setup iniziale: nuovo container parte da sotto, fixed per lo slide
+        // Registra ease parallax (idempotente)
+        if (!gsap.parseEase("parallax")) {
+            CustomEase.create("parallax", "0.7, 0.05, 0.13, 1");
+        }
+
+        // Next container: fixed, parte da sotto, z-index sopra tutto
         gsap.set(next, {
             position: "fixed",
             top: 0,
             left: 0,
             width: "100%",
-            zIndex: 105,
-            y: CONFIG.transition.enterFromY,
+            zIndex: 3,  // sopra il transition wrap (z-index: 2)
+            y: "100vh",
             autoAlpha: 1,
         });
 
-        // Container corrente: posizione relativa per lo slide parallax
-        gsap.set(current, {
-            position: "relative",
-            zIndex: 10,
-        });
+        const tl = gsap.timeline();
 
-        // Nascondi l'overlay del nuovo container (evita doppia copertura)
-        const nextOverlay = next?.querySelector(".transition_wrap");
-        if (nextOverlay) {
-            gsap.set(nextOverlay, { autoAlpha: 0 });
-        }
-
-        const tl = gsap.timeline({
-            defaults: {
-                duration: CONFIG.transition.slideDuration,
-                ease: CONFIG.transition.enterEase
+        // Slide up del nuovo container (clearProps incluso nel tween)
+        tl.fromTo(next,
+            { y: "100vh" },
+            {
+                y: "0vh",
+                duration: 1.2,
+                ease: "parallax",
+                clearProps: "position,top,left,width,zIndex,y",
             },
-        });
+            0
+        );
 
-        // NUOVO: lo slide inizia con un piccolo delay (overlap con overlay fade)
-        const slideStart = CONFIG.transition.slideStartDelay || 0;
-
-        // Slide simultaneo: nuovo sale, vecchio scende (effetto parallax)
-        tl.to(next, { y: 0 }, slideStart);
-        tl.to(current, { y: CONFIG.transition.leaveToY }, slideStart);
-
-        // Hero start con delay configurabile (relativo all'inizio dello slide)
-        const heroAt = slideStart + (CONFIG.transition.heroDelay || 0.5);
+        // Hero start con delay
+        const heroAt = CONFIG.transition.heroDelay || 0.7;
         tl.call(() => {
-            // Reset nav PRIMA che parta l'hero
+            // Reset nav
             try { ScrollDir?.pause(true); } catch (_) { }
+            try {
+                const desktopNav = document.querySelector(CONFIG.scrollDir.desktopNavSelector);
+                if (desktopNav) gsap.set(desktopNav, { clearProps: "y" });
+            } catch (_) { }
             try { ScrollDir?.reset(true); } catch (_) { }
             try { ScrollDir?.pause(false); } catch (_) { }
 
-            // Avvia animazione hero
             onHeroStart?.();
         }, null, heroAt);
 
-        // Cleanup finale (dopo che lo slide è completo)
-        const cleanupAt = slideStart + CONFIG.transition.slideDuration + 0.05;
+        // Page ready: scroll to top + Lenis restart
+        tl.add("pageReady");
         tl.call(() => {
-            // 1. Nascondi SUBITO il container corrente (previeni doppia visibilità)
-            gsap.set(current, { autoAlpha: 0, display: "none" });
-
-            // 2. Scroll to top PRIMA di togliere il fixed
             hardScrollTop();
+            gsap.set(next, { clearProps: "all" });
 
-            // 3. Togli fixed in due step per evitare il reflow visibile
-            gsap.set(next, { position: "relative", top: "auto", left: "auto", width: "", y: 0, zIndex: "" });
+            if (ScrollTrigger) {
+                requestAnimationFrame(() => ScrollTrigger.refresh(true));
+            }
 
-            requestAnimationFrame(() => {
-                gsap.set(next, { clearProps: "position,top,left,width,zIndex,y" });
-
-                if (ScrollTrigger) {
-                    requestAnimationFrame(() => ScrollTrigger.refresh(true));
-                }
-
-                scrollUnlock();
-                log("Enter: slide transition cleanup done");
-            });
-        }, null, cleanupAt);
+            scrollUnlock();
+            log("Enter: parallax transition complete");
+        }, null, "pageReady");
 
         return tl;
     }
@@ -3351,7 +3422,7 @@ CODE MAP
                     currentReveal?.cleanup();
                     currentReveal = null;
 
-                    currentSlidersCleanup?.("soft");
+                    // Slider resta vivo finché l'overlay copre: il destroy avviene in afterLeave
                     currentSlidersCleanup = null;
 
                     currentSlideshowCleanup?.();
