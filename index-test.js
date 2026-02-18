@@ -39,8 +39,8 @@ CODE MAP
             lerp: 0.075,
             wheelMultiplier: 1,
             touchMultiplier: 1.2,
-            smoothTouch: true,        
-            smoothWheel: true,       
+            smoothTouch: true,
+            smoothWheel: true,
             syncTouch: true,
             syncTouchLerp: 0.075,
             touchInertiaMultiplier: 35,
@@ -334,6 +334,7 @@ CODE MAP
     DEPENDENCIES
     ========================= */
     const { gsap, barba, ScrollTrigger } = window;
+    const SplitText = window.SplitText; // optional (GSAP SplitText)
     const Lenis = window.Lenis; // optional
     const $ = window.jQuery || window.$;
     /* =========================
@@ -635,6 +636,7 @@ CODE MAP
     if (!gsap) return console.warn("[CORE] GSAP mancante");
     if (!barba) return console.warn("[CORE] Barba mancante");
     if (ScrollTrigger) gsap.registerPlugin(ScrollTrigger);
+    if (SplitText) gsap.registerPlugin(SplitText);
 
     const log = (...args) => CONFIG.debug && console.log("[CORE]", ...args);
 
@@ -745,6 +747,208 @@ CODE MAP
             !!window.matchMedia &&
             window.matchMedia("(prefers-reduced-motion: reduce)").matches
         );
+    }
+
+    /* =========================
+       MASKED TEXT REVEAL (GSAP SplitText) — OSMO
+       Markup:
+       - data-split="heading"
+       - data-split-reveal="lines" | "words" | "chars" (default: lines)
+       Notes:
+       - CSS already hides [data-split="heading"] to prevent FOUC
+       - We set autoAlpha back to 1 right before splitting
+    ========================= */
+
+    const splitConfig = {
+      lines: { duration: 0.8, stagger: 0.08 },
+      words: { duration: 0.6, stagger: 0.06 },
+      chars: { duration: 0.4, stagger: 0.01 },
+    };
+
+    function initMaskTextScrollReveal(scope = document) {
+      // Hard guards (keep pipeline safe)
+      if (!gsap || !SplitText || !ScrollTrigger) return () => { };
+
+      const root = getRoot(scope);
+      const headings = Array.from(root.querySelectorAll('[data-split="heading"]'));
+      if (!headings.length) return () => { };
+
+      let destroyed = false;
+      const instances = [];
+
+      const run = () => {
+        if (destroyed) return;
+
+        headings.forEach((heading) => {
+          if (!heading) return;
+
+          // Prevent duplicates per container lifecycle.
+          if (heading.dataset.soSplitInit === "true") return;
+          heading.dataset.soSplitInit = "true";
+
+          // FOUC fix (Osmo): elements are hidden in CSS, we reveal right before splitting
+          gsap.set(heading, { autoAlpha: 1, visibility: "visible" });
+
+          // Find split type (default: lines)
+          const typeRaw = (heading.dataset.splitReveal || "lines").toLowerCase();
+          const type = typeRaw === "words" || typeRaw === "chars" ? typeRaw : "lines";
+
+          // Only split as far as we need
+          const typesToSplit =
+            type === "lines" ? ["lines"] :
+              type === "words" ? ["lines", "words"] :
+                ["lines", "words", "chars"];
+
+          // If this is a Webflow Rich Text wrapper, split its direct children instead of the wrapper.
+          // This helps preserve original typography/leading.
+          const isRichText = heading.classList?.contains("w-richtext") || heading.classList?.contains("w-rich-text");
+          const splitTarget = isRichText ? Array.from(heading.children) : heading;
+
+          // HERO: if the split heading lives inside the hero section, play immediately (no ScrollTrigger)
+          // This avoids the common ScrollTrigger behavior where the first evaluation only happens after a tiny scroll.
+          const isHeroHeading = !!(
+            heading.closest("[data-hero]") ||
+            heading.closest("[data-hero-content]") ||
+            heading.closest("[data-hero-media]")
+          );
+
+          const instance = SplitText.create(splitTarget, {
+            type: typesToSplit.join(", "),
+            mask: "lines",
+            autoSplit: true,
+            linesClass: "line",
+            wordsClass: "word",
+            charsClass: "letter",
+            onSplit(inst) {
+              // On resize SplitText will re-split. We must return the tween so SplitText can revert the old one.
+              const targets = inst[type] || inst.lines;
+              const cfg = splitConfig[type] || splitConfig.lines;
+
+              // Reduced motion: no animation
+              if (prefersReducedMotion()) {
+                try { gsap.set(targets, { clearProps: "all" }); } catch (_) { }
+                return null;
+              }
+
+              // HERO headings should animate immediately on enter.
+              // Non-hero headings use ScrollTrigger.
+              if (isHeroHeading) {
+                const tween = gsap.from(targets, {
+                  yPercent: 110,
+                  duration: cfg.duration,
+                  stagger: cfg.stagger,
+                  ease: "expo.out",
+                  // small delay to avoid competing with first paint / other hero prep
+                  delay: 0.05,
+                  clearProps: "willChange",
+                });
+
+                // Force a ScrollTrigger evaluation anyway (defensive) to keep other triggers consistent.
+                // This prevents the 'needs tiny scroll' feeling on some browsers.
+                try {
+                  requestAnimationFrame(() => {
+                    try { ScrollTrigger.refresh(true); } catch (_) { }
+                    try { ScrollTrigger.update(true); } catch (_) { }
+                  });
+                } catch (_) { }
+
+                return tween;
+              }
+
+              const tween = gsap.from(targets, {
+                yPercent: 110,
+                duration: cfg.duration,
+                stagger: cfg.stagger,
+                ease: "expo.out",
+                scrollTrigger: {
+                  trigger: heading,
+                  // Osmo uses clamp() to force animation to always start from 0
+                  start: "clamp(top 92%)",
+                  once: true,
+                },
+              });
+
+              // Ensure first evaluation happens without requiring user scroll.
+              try {
+                requestAnimationFrame(() => {
+                  try { ScrollTrigger.refresh(true); } catch (_) { }
+                  try { ScrollTrigger.update(true); } catch (_) { }
+                });
+              } catch (_) { }
+
+              return tween;
+            },
+          });
+
+          instances.push(instance);
+        });
+      };
+
+      // Osmo bonus: split after fonts are loaded to avoid reflow jumps
+      if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === "function") {
+        document.fonts.ready.then(run).catch(run);
+      } else {
+        run();
+      }
+
+      // Cleanup for Barba leave
+      return () => {
+        destroyed = true;
+
+        headings.forEach((heading) => {
+          if (!heading) return;
+          try { delete heading.dataset.soSplitInit; } catch (_) { }
+
+          // If a ScrollTrigger exists on any tween created by SplitText, revert will handle cleanup.
+          // We still do best-effort kill in case something remains.
+          try {
+            ScrollTrigger.getAll().forEach((t) => {
+              if (t && t.trigger === heading) t.kill(true);
+            });
+          } catch (_) { }
+        });
+
+        instances.forEach((inst) => {
+          try { inst?.revert?.(); } catch (_) { }
+        });
+
+        try { ScrollTrigger.refresh(true); } catch (_) { }
+      };
+    }
+
+    // Bind SplitText lifecycle to Barba (one time)
+    let __splitTextBarbaHooksBound = false;
+    function bindSplitTextBarbaHooksOnce() {
+      if (__splitTextBarbaHooksBound) return;
+      __splitTextBarbaHooksBound = true;
+
+      const initFor = (container) => {
+        if (!container) return;
+        try { container.__soSplitCleanup?.(); } catch (_) { }
+        container.__soSplitCleanup = initMaskTextScrollReveal(container);
+      };
+
+      const cleanupFor = (container) => {
+        if (!container) return;
+        try { container.__soSplitCleanup?.(); } catch (_) { }
+        container.__soSplitCleanup = null;
+      };
+
+      // First load (current container)
+      requestAnimationFrame(() => {
+        const c = document.querySelector("[data-barba='container']");
+        initFor(c);
+      });
+
+      if (barba && barba.hooks) {
+        barba.hooks.beforeLeave(({ current }) => {
+          cleanupFor(current?.container);
+        });
+
+        barba.hooks.afterEnter(({ next }) => {
+          initFor(next?.container);
+        });
+      }
     }
 
 
@@ -1331,39 +1535,39 @@ CODE MAP
 
     /* TEMP DISABLED: original initMenu */
     // TEMP REPLACEMENT initMenu (user provided)
+    /* =========================
+       initMenu() — v6
+       Click su link nel menu → nav_wrap si muove con parallax identico
+       alla current page in leave, poi barba.go(href)
+       ========================= */
     function initMenu() {
         gsap.registerPlugin(CustomEase);
-        CustomEase.create("main", "0.62, 0.05, 0.01, 0.99");
+        CustomEase.create("main",    "0.62, 0.05, 0.01, 0.99");
         CustomEase.create("mainOut", "0.55, 0.05, 0.18, 1");
 
-        gsap.defaults({
-            ease: "main",
-            duration: 0.7
-        });
+        gsap.defaults({ ease: "main", duration: 0.7 });
 
-        let navWrap = document.querySelector(".nav_wrap");
-        let state = navWrap.getAttribute("data-nav");
-        let overlay = navWrap.querySelector(".nav_overlay");
-        let menu = navWrap.querySelector(".nav_menu");
-        let logoLink = navWrap.querySelector(".nav_logo_row");
-        let bgPanels = navWrap.querySelectorAll(".nav_menu_panel");
-        let menuToggles = document.querySelectorAll("[data-menu-toggle]");
-        let menuLinks = navWrap.querySelectorAll(".u-text-style-h1");
-        let menuIndexs = navWrap.querySelectorAll(".nav_menu_index");
-        let menuButton = document.querySelector(".menu_btn_wrap");
+        let navWrap          = document.querySelector(".nav_wrap");
+        let overlay          = navWrap.querySelector(".nav_overlay");
+        let menu             = navWrap.querySelector(".nav_menu");
+        let bgPanels         = navWrap.querySelectorAll(".nav_menu_panel");
+        let menuToggles      = document.querySelectorAll("[data-menu-toggle]");
+        let menuLinks        = navWrap.querySelectorAll(".u-text-style-h1");
+        let menuIndexs       = navWrap.querySelectorAll(".nav_menu_index");
+        let menuButton       = document.querySelector(".menu_btn_wrap");
         let menuButtonLayout = menuButton.querySelectorAll(".menu_btn_layout");
-        let menuDivider = navWrap.querySelectorAll(".nav_menu_divider");
-        let menuList = navWrap.querySelector(".nav_menu_list");
-        let navTransition = navWrap.querySelector(".nav_transition");
-        let menuFooter = navWrap.querySelector(".nav_menu_footer");
+        let menuDivider      = navWrap.querySelectorAll(".nav_menu_divider");
+        let menuList         = navWrap.querySelector(".nav_menu_list");
+        let menuFooter       = navWrap.querySelector(".nav_menu_footer");
 
         let barbaContainer = document.querySelector("[data-barba='container']");
-        const SHIFT_Y = 30;
+        const SHIFT_Y        = 30;
         const SHIFT_DURATION = 0.9;
-        const SHIFT_EASE = "power2.out";
+        const SHIFT_EASE     = "power2.out";
 
         let tl = gsap.timeline();
 
+        /* ---- OPEN (invariato) ---- */
         const openNav = () => {
             navWrap.setAttribute("data-nav", "open");
             barbaContainer = document.querySelector("[data-barba='container']");
@@ -1371,89 +1575,60 @@ CODE MAP
             tl.clear()
                 .set(navWrap, { display: "block" })
                 .set(menu, { yPercent: 0 }, "<")
-                .set(navTransition, { autoAlpha: 0 }, "<")
-                // Reset stato residuo da transitionNav/closeNav
-                .set(menuDivider, { autoAlpha: 1, scaleX: 0 }, "<")
-                .set(menuLinks, { autoAlpha: 0, yPercent: 120 }, "<")
-                .set(menuIndexs, { autoAlpha: 0, yPercent: 80 }, "<")
-                .set(menuFooter, { autoAlpha: 0, yPercent: 30 }, "<")
+                .set(menuDivider,      { autoAlpha: 1, scaleX: 0 }, "<")
+                .set(menuLinks,        { autoAlpha: 0, yPercent: 120 }, "<")
+                .set(menuIndexs,       { autoAlpha: 0, yPercent: 80 }, "<")
+                .set(menuFooter,       { autoAlpha: 0, yPercent: 30 }, "<")
                 .set(menuButtonLayout, { yPercent: 0 }, "<")
-                .set(overlay, { autoAlpha: 0 }, "<")
-                .set(bgPanels, { yPercent: 101 }, "<")
-                .set(menuList, { yPercent: 40 }, "<")
-                // Animazioni di apertura
-                .fromTo(overlay, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.8, ease: "power2.out" }, "<")
-                .fromTo(bgPanels, { yPercent: 101 }, { yPercent: 0, duration: 0.85 }, "<0.05")
-                .fromTo(menuButtonLayout, { yPercent: 0 }, { yPercent: -150, duration: 1 }, "<")
-                // Micro lift: container sale leggermente
+                .set(overlay,          { autoAlpha: 0 }, "<")
+                .set(bgPanels,         { yPercent: 101 }, "<")
+                .set(menuList,         { yPercent: 40 }, "<")
+                .fromTo(overlay,          { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.8, ease: "power2.out" }, "<")
+                .fromTo(bgPanels,         { yPercent: 101 }, { yPercent: 0, duration: 0.85 }, "<0.05")
+                .fromTo(menuButtonLayout, { yPercent: 0 },   { yPercent: -150, duration: 1 }, "<")
                 .to(barbaContainer, { y: -SHIFT_Y, duration: SHIFT_DURATION, ease: SHIFT_EASE }, "<0.05")
-                .fromTo(menuList, { yPercent: 40 }, { yPercent: 0, duration: 1 }, "<0.15")
-                .fromTo(menuLinks, { autoAlpha: 0, yPercent: 120 }, { yPercent: 0, autoAlpha: 1, duration: 0.9, stagger: 0.08 }, "<0.1")
-                .fromTo(menuIndexs, { yPercent: 80, autoAlpha: 0 }, { yPercent: 0, autoAlpha: 1, duration: 0.7, stagger: 0.08 }, "<0.05")
+                .fromTo(menuList,    { yPercent: 40 }, { yPercent: 0, duration: 1 }, "<0.15")
+                .fromTo(menuLinks,   { autoAlpha: 0, yPercent: 120 }, { yPercent: 0, autoAlpha: 1, duration: 0.9, stagger: 0.08 }, "<0.1")
+                .fromTo(menuIndexs,  { yPercent: 80, autoAlpha: 0 },  { yPercent: 0, autoAlpha: 1, duration: 0.7, stagger: 0.08 }, "<0.05")
                 .fromTo(menuDivider, { scaleX: 0, transformOrigin: "left" }, { scaleX: 1, stagger: 0.06, duration: 0.9 }, "<0.1")
-                .fromTo(menuFooter, { autoAlpha: 0, yPercent: 30 }, { autoAlpha: 1, yPercent: 0, duration: 0.7 }, "<0.3");
+                .fromTo(menuFooter,  { autoAlpha: 0, yPercent: 30 }, { autoAlpha: 1, yPercent: 0, duration: 0.7 }, "<0.3");
         };
 
+        /* ---- CLOSE (invariato) ---- */
         const closeNav = () => {
             navWrap.setAttribute("data-nav", "closed");
             barbaContainer = document.querySelector("[data-barba='container']");
 
             tl.clear()
-                // Fase 1: chiudi contenuti menu (overlay ancora pieno)
-                .to(menuLinks, { yPercent: -60, autoAlpha: 0, duration: 0.45, stagger: 0.03, ease: "mainOut" })
-                .to(menuIndexs, { autoAlpha: 0, duration: 0.3 }, "<")
+                .to(menuLinks,   { yPercent: -60, autoAlpha: 0, duration: 0.45, stagger: 0.03, ease: "mainOut" })
+                .to(menuIndexs,  { autoAlpha: 0, duration: 0.3 }, "<")
                 .to(menuDivider, { scaleX: 0, transformOrigin: "right center", duration: 0.4, ease: "mainOut" }, "<")
-                .to(menuFooter, { autoAlpha: 0, yPercent: 20, duration: 0.35 }, "<")
-                // Container accompagna verso 0 (ancora coperto dal menu)
-                .to(barbaContainer, { y: 0, duration: 0.3, ease: "power2.inOut" }, "<")
+                .to(menuFooter,  { autoAlpha: 0, yPercent: 20, duration: 0.35 }, "<")
+                .to(barbaContainer,   { y: 0, duration: 0.3, ease: "power2.inOut" }, "<")
                 .to(menuButtonLayout, { yPercent: 0, duration: 0.9 }, "<")
-
-                // Fase 2: pannelli escono, ma overlay è ancora opaco — set invisibile
                 .set(barbaContainer, { y: SHIFT_Y })
                 .to(bgPanels, { yPercent: -101, duration: 0.65, ease: "mainOut" }, "<")
-
-                // Fase 3: overlay sfuma, container risale (unico movimento visibile: basso → alto)
-                .to(overlay, { autoAlpha: 0, duration: 0.5, ease: "power2.inOut" }, "<")
+                .to(overlay,  { autoAlpha: 0,   duration: 0.5,  ease: "power2.inOut" }, "<")
                 .to(barbaContainer, { y: 0, duration: SHIFT_DURATION, ease: SHIFT_EASE }, "<0.2")
-
-                .set(navWrap, { display: "none" })
+                .set(navWrap,        { display: "none" })
                 .set(barbaContainer, { clearProps: "y" });
         };
 
-        const transitionNav = () => {
-            navWrap.setAttribute("data-nav", "closed");
-            barbaContainer = document.querySelector("[data-barba='container']");
-
-            tl.clear()
-                .to(menuLinks, { yPercent: -40, autoAlpha: 0, duration: 0.35, stagger: 0.02, ease: "power2.in" })
-                .to([menuIndexs, menuDivider, menuFooter], { autoAlpha: 0, duration: 0.25 }, "<")
-                // Container torna a 0 (coperto)
-                .to(barbaContainer, { y: 0, duration: 0.3, ease: "power2.inOut" }, "<")
-                // Set invisibile prima che navTransition copra
-                .set(barbaContainer, { y: SHIFT_Y })
-                .to(navTransition, { autoAlpha: 1, duration: 0.45, ease: "power2.inOut" }, "<")
-                .to(menu, { yPercent: -40, duration: 0.5, ease: "power2.out" }, "<")
-                .to(overlay, { autoAlpha: 0, duration: 0.4 }, "<")
-                .to(menuButtonLayout, { yPercent: 0, duration: 0.6 }, "<0.15")
-                // Container risale (visibile)
-                .to(barbaContainer, { y: 0, duration: 0.4, ease: "power2.out" }, "<0.1")
-                .set(navWrap, { display: "none" })
-                .set(barbaContainer, { clearProps: "y" });
-        };
-
+        /* ---- TOGGLE BUTTON (invariato) ---- */
         menuToggles.forEach((toggle) => {
             toggle.addEventListener("click", () => {
-                state = navWrap.getAttribute("data-nav");
+                const state = navWrap.getAttribute("data-nav");
                 if (state === "open") {
                     closeNav();
-                    try { window.lenis?.start?.(); } catch (_) { }
+                    try { window.lenis?.start?.(); } catch (_) {}
                 } else {
                     openNav();
-                    try { window.lenis?.stop?.(); } catch (_) { }
+                    try { window.lenis?.stop?.(); } catch (_) {}
                 }
             });
         });
 
+        /* ---- LINK CLICK NEL MENU ---- */
         $("a").on("click", function (e) {
             if (
                 $(this).prop("hostname") === window.location.host &&
@@ -1461,14 +1636,56 @@ CODE MAP
                 $(this).attr("target") !== "_blank" &&
                 navWrap.getAttribute("data-nav") === "open"
             ) {
-                if (window.location.pathname === $(this).attr("href")) {
+                e.preventDefault();
+                const href = $(this).attr("href");
+
+                if (window.location.pathname === href) {
                     closeNav();
-                    try { window.lenis?.start?.(); } catch (_) { }
+                    try { window.lenis?.start?.(); } catch (_) {}
                 } else {
-                    e.preventDefault();
-                    transitionNav();
+                    // Stoppa animazioni menu in corso
+                    tl.kill();
+
+                    // Segna che la nav era aperta
+                    window.__navWasOpen = true;
+
+                    // Sblocca scroll
+                    try { window.lenis?.start?.(); } catch (_) {}
+
+                    // NON anima navWrap qui — lo fa transitionLeave in sincronia col current container
+                    barba.go(href);
                 }
             }
+        });
+    }
+
+
+    /* =========================
+       prefetchNavLinksOnce()
+       Prefetch una volta sola al bootstrap — le pagine linkate nel menu
+       vengono caricate in background prima che l'utente apra il menu.
+       ========================= */
+    function prefetchNavLinksOnce() {
+        if (window.__navPrefetchDone) return;
+        window.__navPrefetchDone = true;
+
+        const navWrap = document.querySelector(".nav_wrap");
+        if (!navWrap) return;
+
+        navWrap.querySelectorAll("a[href]").forEach((link) => {
+            const href = link.getAttribute("href");
+            if (!href) return;
+            try {
+                const url = new URL(href, location.href);
+                if (
+                    url.origin !== location.origin ||
+                    href.includes("#") ||
+                    href.startsWith("mailto:") ||
+                    href.startsWith("tel:")
+                ) return;
+                if (url.pathname === location.pathname) return;
+                barba.prefetch(href);
+            } catch (_) {}
         });
     }
 
@@ -1688,6 +1905,7 @@ CODE MAP
 
         // 2d) Menu (nav is outside Barba container, init once)
         initMenu(document);
+        prefetchNavLinksOnce();
 
         // 2e) Scroll direction (nav hide/show on desktop, global)
         ScrollDir = initDetectScrollingDirection();
@@ -1713,6 +1931,7 @@ CODE MAP
         Scroll.initLenis();
         Scroll.bindResumeHandlersOnce();
         bindWebflowFormsResumeOnce();
+        bindSplitTextBarbaHooksOnce();
 
         log("Bootstrap OK");
     }
@@ -2021,14 +2240,14 @@ CODE MAP
                 loop: effectiveLoop,
                 // Loop stability (required with slidesPerView:'auto' + centeredSlides)
                 ...(effectiveLoop
-                  ? {
-                      loopedSlides: Math.max(1, Math.min(swiperWrapper.children.length, 12)),
-                      loopAdditionalSlides: Math.max(
-                        Number(cfg.loopAdditionalSlides) || 0,
-                        Math.max(1, Math.min(swiperWrapper.children.length, 12))
-                      ),
+                    ? {
+                        loopedSlides: Math.max(1, Math.min(swiperWrapper.children.length, 12)),
+                        loopAdditionalSlides: Math.max(
+                            Number(cfg.loopAdditionalSlides) || 0,
+                            Math.max(1, Math.min(swiperWrapper.children.length, 12))
+                        ),
                     }
-                  : {}),
+                    : {}),
 
                 mousewheel: {
                     enabled: mousewheel,
@@ -3100,52 +3319,76 @@ CODE MAP
     /* =========================
     TRANSITIONS, slide sync
     ========================= */
+    /* =========================
+       transitionLeave() — v4
+
+       Comportamento invariato rispetto alla versione originale.
+       La nav_wrap viene ignorata — non viene toccata.
+       Resta aperta e visibile durante la leave.
+       ========================= */
     function transitionLeave(data) {
         const current = data?.current?.container;
 
-        log("Leave: dark overlay + parallax shift");
+        log("Leave: dark overlay + parallax standard");
         scrollLock();
 
-        // Transition wrap FUORI dal container (globale, persistente)
         const transitionWrap = document.querySelector("[data-transition-wrap]");
         const transitionDark = transitionWrap?.querySelector("[data-transition-dark]");
 
         const tl = gsap.timeline({
             onComplete: () => {
-                // Rimuovi il vecchio container dal DOM (come Osmo)
-                try { current.remove(); } catch (_) { }
-            }
+                try { current.remove(); } catch (_) {}
+            },
         });
 
         if (!transitionWrap || !transitionDark) {
-            // Fallback se non c'è il transition wrap globale
             tl.to(current, { autoAlpha: 0, duration: 0.4 });
             return tl;
         }
 
-        // Registra ease parallax (idempotente)
+        // Reduced motion: swap immediato senza animazione
+        if (prefersReducedMotion()) {
+            tl.set(current, { autoAlpha: 0 });
+            return tl;
+        }
+
         if (!gsap.parseEase("parallax")) {
             CustomEase.create("parallax", "0.7, 0.05, 0.13, 1");
         }
 
-        // Layer setup
-        gsap.set(transitionWrap, { zIndex: 2 });
+        if (window.__navWasOpen) {
+            gsap.set(transitionWrap, { zIndex: 45 }); // tra next (50) e nav (40)
+        } else {
+            gsap.set(transitionWrap, { zIndex: 2 });
+        }
 
-        // Dark overlay a 80% (profondità, non copertura piena)
+        // Dark overlay a 80%
         tl.fromTo(transitionDark,
             { autoAlpha: 0 },
             { autoAlpha: 0.8, duration: 1.2, ease: "parallax" },
             0
         );
 
-        // Current scivola via verso l'alto (parallasse lenta)
+        // Current container scivola via verso l'alto
         tl.fromTo(current,
             { y: "0vh" },
             { y: CONFIG.transition.leaveToY, duration: 1.2, ease: "parallax" },
             0
         );
 
-        // Micro lift nav (sale e sfuma durante la transizione)
+        // nav_wrap si muove identica al current container (solo se menu era aperto)
+        if (window.__navWasOpen) {
+            const navWrap = document.querySelector(".nav_wrap");
+            if (navWrap) {
+                tl.fromTo(navWrap,
+                    { y: "0vh" },
+                    { y: CONFIG.transition.leaveToY, duration: 1.2, ease: "parallax" },
+                    0  // stessa position → perfettamente sincronizzati
+                );
+            }
+        }
+
+        // Desktop nav bar (hamburger strip) — micro hide
         const desktopNav = document.querySelector(CONFIG.scrollDir.desktopNavSelector);
         if (desktopNav) {
             tl.to(desktopNav, {
@@ -3169,79 +3412,326 @@ CODE MAP
                     }, 0.3);
                 }
             }
-        } catch (_) { }
+        } catch (_) {}
 
-        // Reset overlay dark alla fine (pronto per la prossima transizione)
         tl.set(transitionDark, { autoAlpha: 0 });
 
         return tl;
     }
 
+    /* =========================
+       transitionEnter() — v6
+
+       Se __navWasOpen === true: z-index 50 sul next container
+       A t=0.8s (next copre già tutto): reset silenzioso nav + bottone hamburger
+       ========================= */
     function transitionEnter(data, onHeroStart) {
         const next = data?.next?.container;
 
         preparePage(next);
 
-        // Registra ease parallax (idempotente)
         if (!gsap.parseEase("parallax")) {
             CustomEase.create("parallax", "0.7, 0.05, 0.13, 1");
         }
 
-        // Next container: fixed, parte da sotto, z-index sopra tutto
+        // Reduced motion: swap immediato senza animazione
+        if (prefersReducedMotion()) {
+            gsap.set(next, { clearProps: "all", autoAlpha: 1 });
+            const rmTl = gsap.timeline();
+            rmTl.call(() => onHeroStart?.(), null, 0);
+            rmTl.call(() => { hardScrollTop(); scrollUnlock(); }, null, 0.05);
+            return rmTl;
+        }
+
+        const fromMenu = !!window.__navWasOpen;
+
+        // next container: z-index 50 se veniamo dal menu (sopra nav z-40)
         gsap.set(next, {
             position: "fixed",
             top: 0,
             left: 0,
             width: "100%",
-            zIndex: 3,  // sopra il transition wrap (z-index: 2)
+            zIndex: fromMenu ? 50 : 3,
             y: "100vh",
             autoAlpha: 1,
         });
 
         const tl = gsap.timeline();
 
-        // Slide up del nuovo container (clearProps incluso nel tween)
+        // Slide up del next container
         tl.fromTo(next,
             { y: "100vh" },
             {
                 y: "0vh",
                 duration: 1.2,
                 ease: "parallax",
-                clearProps: "position,top,left,width,zIndex,y",
+                onComplete: () => {
+                    gsap.set(next, { clearProps: "position,top,left,width,zIndex,y" });
+                },
             },
             0
         );
 
-        // Hero start con delay
+        // A t=1.0s il next container è già oltre metà schermo — copre la nav.
+        // Resettiamo tutto in silenzio: y, display, stato, bottone.
+        if (fromMenu) {
+            tl.call(() => {
+                const navWrap = document.querySelector(".nav_wrap");
+                if (!navWrap) return;
+
+                gsap.killTweensOf(navWrap);
+                gsap.set(navWrap, { clearProps: "y,transform" });
+                navWrap.setAttribute("data-nav", "closed");
+                navWrap.style.display = "none";
+
+                // Ripristina il bottone hamburger (era a yPercent:-150 con menu open)
+                const btnLayout = document.querySelectorAll(".menu_btn_layout");
+                if (btnLayout.length) gsap.to(btnLayout, { yPercent: 0, duration: 0.9, ease: "main" });
+
+                // Ripristina z-index del transition wrap (era 45 durante la leave)
+                const transitionWrap = document.querySelector("[data-transition-wrap]");
+                if (transitionWrap) gsap.set(transitionWrap, { zIndex: 2 });
+
+                window.__navWasOpen = false;
+            }, null, 1.0);
+        }
+
+        // Hero start
         const heroAt = CONFIG.transition.heroDelay || 0.7;
         tl.call(() => {
-            // Reset nav
-            try { ScrollDir?.pause(true); } catch (_) { }
+            try { ScrollDir?.pause(true); } catch (_) {}
             try {
                 const desktopNav = document.querySelector(CONFIG.scrollDir.desktopNavSelector);
                 if (desktopNav) gsap.set(desktopNav, { clearProps: "y" });
-            } catch (_) { }
-            try { ScrollDir?.reset(true); } catch (_) { }
-            try { ScrollDir?.pause(false); } catch (_) { }
-
+            } catch (_) {}
+            try { ScrollDir?.reset(true); } catch (_) {}
+            try { ScrollDir?.pause(false); } catch (_) {}
             onHeroStart?.();
         }, null, heroAt);
 
-        // Page ready: scroll to top + Lenis restart
-        tl.add("pageReady");
+        // Page ready
         tl.call(() => {
             hardScrollTop();
-            gsap.set(next, { clearProps: "all" });
-
-            if (ScrollTrigger) {
-                requestAnimationFrame(() => ScrollTrigger.refresh(true));
-            }
-
+            if (ScrollTrigger) requestAnimationFrame(() => ScrollTrigger.refresh(true));
+            try { Scroll.lenis?.resize?.(); } catch (_) {}
             scrollUnlock();
-            log("Enter: parallax transition complete");
-        }, null, "pageReady");
+            log("Enter: complete");
+        }, null, ">");
 
         return tl;
+    }
+
+
+    /* =========================
+       AUTO SCROLL SLIDER (Smooothy)
+
+       Dipendenze: Smooothy (global), GSAP (global)
+       Markup: [data-smooothy="1"] sul wrapper del slider
+
+       Pattern: identico agli altri init del blueprint
+       - initSmoothySlider(scope) → ritorna cleanup fn
+       - chiamato in once() e enter() con data.next.container
+       - cleanup chiamato in leave() prima della transizione
+       ========================= */
+
+    function initSmoothySlider(scope = document) {
+        // Guard: dipendenze
+        if (!window.Smooothy) {
+            log("[SMOOOTHY] Smooothy non trovato, skip");
+            return () => {};
+        }
+        if (!gsap) {
+            log("[SMOOOTHY] GSAP non trovato, skip");
+            return () => {};
+        }
+
+        const root = getRoot(scope);
+        const wrappers = root.querySelectorAll('[data-smooothy="1"]');
+        if (!wrappers.length) return () => {};
+
+        // ----------------------------------------
+        class AutoScrollSlider extends window.Smooothy {
+            #isPaused = false;
+            #scrollSpeed = 0.15;     // units per frame (delta-time corrected)
+            #wasDragging = false;
+
+            #resumeDelay = 50;
+            #resumeTimer = null;
+
+            // Rampa velocità (0..1)
+            #speedMul = 0;
+            #speedMulTarget = 1;
+            #BRAKE_LERP = 0.08;
+            #RESUME_LERP = 0.05;
+
+            // Viewport visibility
+            #inView = true;
+            #io = null;
+
+            // GSAP ticker reference (per cleanup deterministico)
+            #tickerFn = null;
+
+            constructor(container, config = {}) {
+                super(container, {
+                    ...config,
+                    infinite: true,
+                    snap: false,
+                    scrollInput: false,
+                    lerpFactor: 0.3,
+                    dragSensitivity: 0.005,
+                });
+
+                const originalUpdate = super.update.bind(this);
+
+                this.#tickerFn = () => {
+                    // 1) Rampa speedMul
+                    const lerp = this.#speedMulTarget < this.#speedMul
+                        ? this.#BRAKE_LERP
+                        : this.#RESUME_LERP;
+                    this.#speedMul += (this.#speedMulTarget - this.#speedMul) * lerp;
+                    if (Math.abs(this.#speedMulTarget - this.#speedMul) < 0.001) {
+                        this.#speedMul = this.#speedMulTarget;
+                    }
+
+                    // 2) Auto-scroll: solo se non in pausa, in viewport, visibile, non dragging
+                    if (!this.#isPaused && this.#inView && this.isVisible && !this.isDragging) {
+                        const v = this.#scrollSpeed * this.#speedMul;
+                        // Clamp deltaTime: evita mega catch-up a tab/viewport resume
+                        const dt = Math.min(this.deltaTime || 0, 0.05);
+                        if (v && dt) this.target -= v * dt;
+                    }
+
+                    // 3) Update originale Smooothy + check drag
+                    originalUpdate();
+                    this.#checkDragging();
+                };
+
+                gsap.ticker.add(this.#tickerFn);
+
+                this.#setupPauseOnInteraction(container);
+                this.#setupViewportPause(container);
+
+                // Start morbido
+                this.#speedMul = 0;
+                this.#speedMulTarget = 1;
+
+                log("[SMOOOTHY] init OK", container);
+            }
+
+            // ---- PAUSE / RESUME ----
+            #pause() {
+                this.#isPaused = true;
+                this.#speedMulTarget = 0;
+                this.#clearResume();
+            }
+
+            #resume() {
+                this.#isPaused = false;
+                this.#speedMulTarget = 1;
+            }
+
+            #resumeAfterDelay() {
+                this.#clearResume();
+                this.#resumeTimer = setTimeout(() => this.#resume(), this.#resumeDelay);
+            }
+
+            #clearResume() {
+                clearTimeout(this.#resumeTimer);
+                this.#resumeTimer = null;
+            }
+
+            // ---- DRAG CHECK ----
+            #checkDragging() {
+                if (this.isDragging && !this.#wasDragging) {
+                    this.#wasDragging = true;
+                    this.#pause();
+                } else if (!this.isDragging && this.#wasDragging) {
+                    this.#wasDragging = false;
+                    if (this.#inView) this.#resumeAfterDelay();
+                }
+            }
+
+            // ---- INTERACTION PAUSE ----
+            #setupPauseOnInteraction(sliderEl) {
+                sliderEl.addEventListener("mouseenter", () => this.#pause());
+                sliderEl.addEventListener("mouseleave", () => {
+                    if (this.#inView) this.#resumeAfterDelay();
+                });
+
+                sliderEl.addEventListener("touchstart", () => this.#pause(), { passive: true });
+
+                const resume = () => {
+                    if (this.#inView) this.#resumeAfterDelay();
+                };
+                sliderEl.addEventListener("touchend",   resume, { passive: true });
+                sliderEl.addEventListener("touchcancel", resume, { passive: true });
+            }
+
+            // ---- VIEWPORT PAUSE (IntersectionObserver) ----
+            #setupViewportPause(sliderEl) {
+                if (!("IntersectionObserver" in window)) return;
+
+                this.#io = new IntersectionObserver(
+                    (entries) => {
+                        const entry = entries[0];
+                        const nowInView = !!entry && entry.isIntersecting;
+                        if (nowInView === this.#inView) return;
+
+                        this.#inView = nowInView;
+
+                        if (!this.#inView) {
+                            this.#speedMulTarget = 0;
+                            this.#clearResume();
+                        } else {
+                            this.#speedMulTarget = (!this.#isPaused && !this.isDragging) ? 1 : 0;
+                        }
+                    },
+                    { threshold: 0.1 }
+                );
+
+                this.#io.observe(sliderEl);
+            }
+
+            // ---- DESTROY ----
+            destroy() {
+                this.#clearResume();
+                if (this.#tickerFn) {
+                    try { gsap.ticker.remove(this.#tickerFn); } catch (_) {}
+                    this.#tickerFn = null;
+                }
+                try { this.#io?.disconnect(); } catch (_) {}
+                this.#io = null;
+                try { super.destroy?.(); } catch (_) {}
+                log("[SMOOOTHY] destroyed");
+            }
+        }
+        // ----------------------------------------
+
+        const instances = [];
+
+        wrappers.forEach((wrapper) => {
+            // Guard: no doppio init
+            if (wrapper.dataset.smoothyInitialized === "true") return;
+            wrapper.dataset.smoothyInitialized = "true";
+
+            try {
+                const instance = new AutoScrollSlider(wrapper);
+                instances.push({ wrapper, instance });
+            } catch (e) {
+                console.warn("[SMOOOTHY] init error:", e);
+                delete wrapper.dataset.smoothyInitialized;
+            }
+        });
+
+        // Cleanup deterministico
+        return () => {
+            instances.forEach(({ wrapper, instance }) => {
+                try { instance.destroy(); } catch (_) {}
+                try { delete wrapper.dataset.smoothyInitialized; } catch (_) {}
+            });
+            instances.length = 0;
+            log("[SMOOOTHY] cleanup complete");
+        };
     }
 
 
@@ -3355,6 +3845,7 @@ CODE MAP
     let currentThemeScrollCleanup = null; // <-- NUOVO
     let currentMailButtonCleanup = null; // <-- NUOVO
     let currentStickyTopCleanup = null;
+    let currentSmoothyCleanup = null;
 
 
     barba.init({
@@ -3375,9 +3866,6 @@ CODE MAP
                     preparePage(data.next.container);
                     reinitWebflowForms();
                     initDynamicYear(data.next.container);
-                    currentSlidersCleanup?.();
-                    currentSlidersCleanup = initSlidersSimple(data.next.container);
-                    data.next.container.__slidersCleanup = currentSlidersCleanup;
 
                     currentSlideshowCleanup?.();
                     currentSlideshowCleanup = initSlideshow(
@@ -3405,10 +3893,18 @@ CODE MAP
                     currentStickyTopCleanup?.();
                     currentStickyTopCleanup = initStickyTop(data.next.container);
 
+                    currentSmoothyCleanup?.();
+                    currentSmoothyCleanup = initSmoothySlider(data.next.container);
+
                     initCmsNextPrev(data.next.container);
 
 
                     await runLoader(() => {
+                        // Slider init dopo il loader — container visibile, Swiper può misurare
+                        currentSlidersCleanup?.();
+                        currentSlidersCleanup = initSlidersSimple(data.next.container);
+                        data.next.container.__slidersCleanup = currentSlidersCleanup;
+
                         currentReveal = createRevealSequence(data.next.container);
                     });
 
@@ -3445,6 +3941,9 @@ CODE MAP
 
                     currentStickyTopCleanup?.();
                     currentStickyTopCleanup = null;
+
+                    currentSmoothyCleanup?.();
+                    currentSmoothyCleanup = null;
 
 
                     killAllScrollTriggers();
@@ -3489,6 +3988,9 @@ CODE MAP
 
                     currentStickyTopCleanup?.();
                     currentStickyTopCleanup = initStickyTop(data.next.container);
+
+                    currentSmoothyCleanup?.();
+                    currentSmoothyCleanup = initSmoothySlider(data.next.container);
 
                     initCmsNextPrev(data.next.container);
 
