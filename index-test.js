@@ -1995,11 +1995,16 @@ CODE MAP
         const namespace = getNamespace(container);
         gsap.set(container, { autoAlpha: 1 });
 
-        // Reset tema a light sul container (evita flash durante enter)
+        // Reset tema a light: sia sul container che su body/html
+        // (body/html hanno il background via CSS vars → mobile flash fix)
         try {
             if (window.colorThemes?.getTheme) {
                 const lightVars = window.colorThemes.getTheme("light");
-                if (lightVars) gsap.set(container, lightVars);
+                if (lightVars) {
+                    gsap.set(container, lightVars);
+                    gsap.set(document.body, lightVars);
+                    gsap.set(document.documentElement, lightVars);
+                }
             }
         } catch (_) {}
 
