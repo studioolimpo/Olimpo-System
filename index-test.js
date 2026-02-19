@@ -1995,6 +1995,14 @@ CODE MAP
         const namespace = getNamespace(container);
         gsap.set(container, { autoAlpha: 1 });
 
+        // Reset tema a light sul container (evita flash durante enter)
+        try {
+            if (window.colorThemes?.getTheme) {
+                const lightVars = window.colorThemes.getTheme("light");
+                if (lightVars) gsap.set(container, lightVars);
+            }
+        } catch (_) {}
+
         const heroContent = container.querySelector("[data-hero-content]");
         if (heroContent) {
             const children = getAnimatableChildren(heroContent);
@@ -2724,6 +2732,7 @@ CODE MAP
         }
 
         const root = getRoot(scope);
+        const container = (scope !== document) ? scope : document.querySelector("[data-barba='container']");
         const triggers = root.querySelectorAll("[data-animate-theme-to]");
         if (!triggers.length) return () => { };
 
@@ -2764,7 +2773,7 @@ CODE MAP
                     end: "bottom center",
                     onToggle: ({ isActive }) => {
                         if (isActive) {
-                            gsap.to(document.body, {
+                            gsap.to(container, {
                                 ...themeVars,
                                 duration: 0.6,
                                 ease: "power2.out",
@@ -2822,6 +2831,7 @@ CODE MAP
         }
 
         const root = getRoot(scope);
+        const container = (scope !== document) ? scope : document.querySelector("[data-barba='container']");
         const button = root.querySelector("#mail-button");
         if (!button) return () => { };
 
@@ -2847,7 +2857,7 @@ CODE MAP
             }
 
             const onEnter = () => {
-                gsap.to(document.body, {
+                gsap.to(container, {
                     ...darkVars,
                     duration: 0.7,
                     ease: "power2.out",
@@ -2857,7 +2867,7 @@ CODE MAP
             };
 
             const onLeave = () => {
-                gsap.to(document.body, {
+                gsap.to(container, {
                     ...lightVars,
                     duration: 0.7,
                     ease: "power2.out",
@@ -3398,21 +3408,6 @@ CODE MAP
                 ease: "power2.in",
             }, 0.1);
         }
-
-        // Reset tema a light
-        try {
-            if (window.colorThemes && typeof window.colorThemes.getTheme === "function") {
-                const lightVars = window.colorThemes.getTheme("light");
-                if (lightVars) {
-                    tl.to(document.body, {
-                        ...lightVars,
-                        duration: 0.6,
-                        ease: "power2.out",
-                        overwrite: "auto",
-                    }, 0.3);
-                }
-            }
-        } catch (_) {}
 
         tl.set(transitionDark, { autoAlpha: 0 });
 
