@@ -182,6 +182,10 @@ CODE MAP
             byNamespace: {
                 home: 5.0,
             },
+
+            // crisp slideshow overlay (JS-created, per slide)
+            overlayBackground: "var(--swatch--dark-900-o40)",
+            overlayOpacity: 1,
         },
 
         // Form success overlay (inside Barba container)
@@ -833,10 +837,11 @@ CODE MAP
               // HERO headings should animate immediately on enter.
               // Non-hero headings use ScrollTrigger.
               if (isHeroHeading) {
+                const isHome = !!heading.closest('[data-barba-namespace="home"]');
                 const tween = gsap.from(targets, {
                   yPercent: 110,
                   duration: cfg.duration,
-                  stagger: cfg.stagger,
+                  stagger: isHome ? 0.8 : cfg.stagger,
                   ease: "expo.out",
                   // small delay to avoid competing with first paint / other hero prep
                   delay: 0.05,
@@ -937,6 +942,8 @@ CODE MAP
       // First load (current container)
       requestAnimationFrame(() => {
         const c = document.querySelector("[data-barba='container']");
+        // HOME: il split viene gestito da runLoaderHome, non qui
+        if (c && c.getAttribute("data-barba-namespace") === "home") return;
         initFor(c);
       });
 
@@ -1151,7 +1158,6 @@ CODE MAP
                         : {}),
                     slideActiveClass: "is-active",
                     slideDuplicateActiveClass: "is-active",
-                    // Ensure no initialSlide override for 'works' variant
                 });
             } catch (e) {
                 console.warn("[SLIDERS] Swiper init failed:", e);
@@ -1992,6 +1998,48 @@ CODE MAP
     function preparePage(container) {
         if (!container) return;
 
+        // HOME: il crisp-header è già composto nel DOM (is--loading + is--hidden).
+        // Non nascondere hero-content/hero-media — il loader gestisce tutto.
+        // Nascondo solo sections/dividers below fold.
+        if (getNamespace(container) === "home") {
+            gsap.set(container, { autoAlpha: 1 });
+
+            // FIX: imposta i path del logo a yPercent:300 prima che il container
+            // diventi visibile, così non c'è nessun frame intermedio con i path visibili.
+            const logoLeft = container.querySelector(".crisp-loader__logo .logo_text.is--left");
+            const logoRight = container.querySelector(".crisp-loader__logo .logo_text.is--right");
+            const leftPaths = logoLeft ? Array.from(logoLeft.querySelectorAll("path")) : [];
+            const rightPaths = logoRight ? Array.from(logoRight.querySelectorAll("path")) : [];
+            if (leftPaths.length) gsap.set(leftPaths, { yPercent: 300 });
+            if (rightPaths.length) gsap.set(rightPaths, { yPercent: 300 });
+
+            // FIX: rimuovi is--loading e is--hidden subito, prima che il container
+            // sia visibile. In questo momento è ancora position:fixed fuori schermo
+            // quindi nessun flash. Il loader non serve più (loaderDone === true).
+            const crispHeader = container.querySelector(".crisp-header");
+            if (crispHeader && loaderDone) {
+                crispHeader.classList.remove("is--loading", "is--hidden");
+            }
+
+            try {
+                if (window.colorThemes?.getTheme) {
+                    const lightVars = window.colorThemes.getTheme("light");
+                    if (lightVars) {
+                        gsap.set(container, lightVars); // solo il container, non body/html
+                    }
+                }
+            } catch (_) {}
+            container.querySelectorAll("[data-reveal='section'], [data-reveal='divider']").forEach(el => {
+                const children = getAnimatableChildren(el);
+                if (children.length) gsap.set(children, { autoAlpha: 0 });
+                else gsap.set(getRealElement(el), { autoAlpha: 0 });
+                const staggerable = getStaggerableElements(el);
+                if (staggerable.length) gsap.set(staggerable, { autoAlpha: 0 });
+            });
+            log("Page prepared (HOME)");
+            return;
+        }
+
         const namespace = getNamespace(container);
         gsap.set(container, { autoAlpha: 1 });
 
@@ -2058,6 +2106,17 @@ CODE MAP
                 gsap.set(realDivider, { autoAlpha: 0 });
             }
         });
+
+        // CRISP HEADER: pre-setta gli overlay slider al valore corretto
+        // PRIMA che il container scivoli nella viewport, per evitare il flash
+        if (namespace === "home") {
+            const sliderOverlays = container.querySelectorAll(
+                ".crisp-header__slider-slide .u-overlay"
+            );
+            if (sliderOverlays.length) {
+                gsap.set(sliderOverlays, { opacity: 0.1 });
+            }
+        }
 
         log(`Page prepared: ${namespace}`);
     }
@@ -3306,6 +3365,198 @@ CODE MAP
     }
 
     /* =========================
+       LOADER HOME (crisp)
+       Solo per namespace === "home", chiamato da once()
+    ========================= */
+
+    async function runLoaderHome(container, onHeroStart) {
+    if (loaderDone) { onHeroStart?.(); return; }
+    loaderDone = true;
+
+    const crispHeader = container.querySelector(".crisp-header");
+    if (!crispHeader) {
+        loaderDone = false;
+        return runLoader(onHeroStart);
+    }
+
+    if (!gsap.parseEase("parallax")) {
+        try { CustomEase?.create("parallax", "0.7, 0.05, 0.13, 1"); } catch (_) {}
+    }
+
+    scrollLock();
+
+    const headerWrap = document.querySelector(".header_wrap");
+    if (headerWrap) gsap.set(headerWrap, { autoAlpha: 0 });
+
+    const heroContent   = crispHeader.querySelector("[data-hero-content]");
+    const splitTargets  = heroContent
+        ? Array.from(heroContent.querySelectorAll('[data-split="heading"]'))
+        : [];
+
+    splitTargets.forEach(el => { el.dataset.soSplitInit = "true"; });
+
+    const revealImgs     = crispHeader.querySelectorAll(".crisp-loader__group > *");
+    const scaleUp        = crispHeader.querySelectorAll(".crisp-loader__media");
+    const scaleDown      = crispHeader.querySelectorAll(".crisp-loader__media .is--scale-down");
+    const isRadius       = crispHeader.querySelectorAll(".crisp-loader__media.is--scaling.is--radius");
+    const smallEls       = crispHeader.querySelectorAll(".crisp-header__top, .crisp-header__p");
+    const sliderNav      = crispHeader.querySelectorAll(".crisp-header__slider-nav > *");
+    const loaderOverlays = crispHeader.querySelectorAll(".crisp-loader__media .u-overlay");
+
+    // LOGO
+    const logoWrap  = crispHeader.querySelector(".crisp-loader__logo");
+    const logoLeft  = logoWrap?.querySelector(".logo_text.is--left");
+    const logoRight = logoWrap?.querySelector(".logo_text.is--right");
+
+    const leftPaths  = logoLeft  ? Array.from(logoLeft.querySelectorAll("path"))  : [];
+    const rightPaths = logoRight ? Array.from(logoRight.querySelectorAll("path")) : [];
+
+    if (logoWrap) gsap.set(logoWrap, { autoAlpha: 0 });
+
+    // FIX FLASH: overlay a 0 immediato
+    if (loaderOverlays.length) gsap.set(loaderOverlays, { opacity: 0 });
+
+    let allLines = [];
+
+    const tl = gsap.timeline({
+        defaults: { ease: "expo.inOut" },
+        onStart: () => {
+            crispHeader.classList.remove("is--hidden");
+
+            // FIX: path già sotto la maschera PRIMA che logoWrap diventi visibile
+            if (leftPaths.length)  gsap.set(leftPaths,  { yPercent: 300 });
+            if (rightPaths.length) gsap.set(rightPaths, { yPercent: 300 });
+
+            splitTargets.forEach(el => {
+                gsap.set(el, { opacity: 1, visibility: "visible" });
+            });
+
+            if (splitTargets.length && SplitText) {
+                splitTargets.forEach(el => {
+                    const inst = SplitText.create(el, { type: "lines", mask: "lines" });
+                    if (inst.lines?.length) {
+                        gsap.set(inst.lines, { yPercent: 110 });
+                        allLines.push(...inst.lines);
+                    }
+                });
+            }
+        },
+    });
+
+    // 0) LOGO IN — rivela il wrap appena prima che i path inizino ad animarsi
+    if (logoWrap) tl.set(logoWrap, { autoAlpha: 1 }, 0.49);
+
+    if (leftPaths.length) {
+        tl.to(leftPaths, {
+            yPercent: 0,
+            duration: 1.8,
+            stagger: { each: 0.06, from: "end" },
+            ease: "expo.out",
+        }, 0.5);
+    }
+    if (rightPaths.length) {
+        tl.to(rightPaths, {
+            yPercent: 0,
+            duration: 1.8,
+            stagger: { each: 0.06, from: "start" },
+            ease: "expo.out",
+        }, 0.8);
+    }
+
+    // 1) IMMAGINI
+    if (revealImgs.length) {
+        gsap.set(revealImgs, { force3D: true, willChange: "transform" });
+        tl.fromTo(revealImgs, { xPercent: 500 }, { xPercent: -500, duration: 2.5, stagger: 0.05, force3D: true }, 0.85);
+    }
+    if (scaleDown.length) {
+        tl.to(scaleDown, {
+            scale: 0.5, duration: 2,
+            stagger: { each: 0.05, from: "edges", ease: "none" },
+            onComplete: () => isRadius.forEach(el => el.classList.remove("is--radius")),
+        }, "-=0.5");
+    }
+
+    // 2) SCALE UP + LOGO OUT — simultanei
+    if (scaleUp.length) {
+    const isSmall = window.matchMedia("(width < 48em)").matches;
+    tl.fromTo(scaleUp,
+        { width: isSmall ? "7.5em" : "10em", height: isSmall ? "10em" : "7.5em" },
+        { width: "100vw", height: "100dvh", duration: 2.2 },
+        "< 0.2"
+    );
+}
+
+    // LOGO OUT — path escono verso l'ALTO
+    if (leftPaths.length) {
+        tl.to(leftPaths, {
+            yPercent: 200,
+            duration: 1.0,
+            stagger: { each: 0.04, from: "start" },
+            ease: "expo.in",
+        }, "<");
+    }
+    if (rightPaths.length) {
+        const isSmall = window.matchMedia("(width < 48em)").matches;
+        tl.to(rightPaths, {
+            yPercent: 200,
+            duration: 1.0,
+            stagger: { each: 0.04, from: isSmall ? "end" : "start" },
+            ease: "expo.in",
+        }, "<0.02");
+    }
+
+    if (sliderNav.length) {
+        tl.from(sliderNav, { yPercent: 150, stagger: 0.05, ease: "expo.out", duration: 1.2 }, "-=0.9");
+    }
+
+
+    tl.addLabel("overlayDone");
+
+
+    // 5) Header wrap
+    if (headerWrap) {
+        tl.to(headerWrap, {
+            autoAlpha: 1,
+            duration: 0.8,
+            ease: "power2.out",
+        }, "<1.65");
+    }
+
+    // 4) Testo reveal
+    tl.add(() => {
+        if (!allLines.length) return;
+        gsap.to(allLines, {
+            yPercent: 0,
+            stagger: 0.35,
+            ease: "expo.out",
+            duration: 1.0,
+        });
+    }, "<0.7");
+
+    
+
+    if (smallEls.length) {
+        tl.from(smallEls, { opacity: 0, ease: "power1.inOut", duration: 0.2 }, "overlayDone+=0.1");
+    }
+
+    tl.call(() => {
+        crispHeader.classList.remove("is--loading");
+        document.documentElement.classList.remove("is-loading");
+
+        container.querySelectorAll('[data-slideshow="wrap"]').forEach(wrap => {
+            wrap.__slideshowStart?.();
+        });
+
+        onHeroStart?.();
+        scrollUnlock();
+    }, null, "+=0.45");
+
+    await tl;
+    log("[LOADER HOME] completato");
+}
+
+
+    /* =========================
        BARBA NAV UPDATE
     ========================= */
 
@@ -3428,6 +3679,22 @@ CODE MAP
     function transitionEnter(data, onHeroStart) {
         const next = data?.next?.container;
 
+        // FIX: posiziona PRIMA il container fuori schermo, POI esegui preparePage.
+        // Così qualsiasi modifica al DOM (is--hidden removal) avviene
+        // quando il container è già invisibile e non può flashare.
+        const fromMenu = !!window.__navWasOpen;
+
+        gsap.set(next, {
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100%",
+            zIndex: fromMenu ? 50 : 3,
+            y: "100vh",
+            autoAlpha: 1,
+        });
+
+        // ORA è sicuro: il container è fuori schermo
         preparePage(next);
 
         if (!gsap.parseEase("parallax")) {
@@ -3442,19 +3709,6 @@ CODE MAP
             rmTl.call(() => { hardScrollTop(); scrollUnlock(); }, null, 0.05);
             return rmTl;
         }
-
-        const fromMenu = !!window.__navWasOpen;
-
-        // next container: z-index 50 se veniamo dal menu (sopra nav z-40)
-        gsap.set(next, {
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            zIndex: fromMenu ? 50 : 3,
-            y: "100vh",
-            autoAlpha: 1,
-        });
 
         const tl = gsap.timeline();
 
@@ -3499,6 +3753,18 @@ CODE MAP
         // Hero start
         const heroAt = CONFIG.transition.heroDelay || 0.7;
         tl.call(() => {
+            // Applica tema su body/html SOLO ORA che il next container copre già la viewport
+            if (getNamespace(next) === "home") {
+                try {
+                    if (window.colorThemes?.getTheme) {
+                        const lightVars = window.colorThemes.getTheme("light");
+                        if (lightVars) {
+                            gsap.set(document.body, lightVars);
+                            gsap.set(document.documentElement, lightVars);
+                        }
+                    }
+                } catch (_) {}
+            }
             try { ScrollDir?.pause(true); } catch (_) {}
             try {
                 const desktopNav = document.querySelector(CONFIG.scrollDir.desktopNavSelector);
@@ -3835,6 +4101,110 @@ CODE MAP
     }
 
     /* =========================
+       CRISP SLIDESHOW
+    ========================= */
+
+    function initSlideShow(el) {
+    const ui = {
+        el,
+        slides: Array.from(el.querySelectorAll('[data-slideshow="slide"]')),
+        thumbs: Array.from(el.querySelectorAll('[data-slideshow="thumb"]')),
+    };
+    ui.inner = ui.slides.map(slide => slide.querySelector('[data-slideshow="parallax"]'));
+    ui.overlays = ui.slides.map(slide => {
+        const ov = document.createElement("div");
+        ov.style.cssText = `position:absolute;inset:0;background:${CONFIG.slideshow.overlayBackground};opacity:0;pointer-events:none;z-index:2;`;
+        slide.appendChild(ov);
+        return ov;
+    });
+
+    let current = 0;
+    const length = ui.slides.length;
+    let animating = false;
+    const animationDuration = 2.0;
+    const autoplayDelay = 5000;
+    let autoplayId = null;
+
+    if (!length) return () => {};
+
+    ui.slides.forEach((slide, i) => slide.setAttribute("data-index", i));
+    ui.thumbs.forEach((thumb, i) => {
+        thumb.setAttribute("data-index", i);
+        thumb.style.pointerEvents = "none";
+    });
+
+    ui.slides[current].classList.add("is--current");
+    if (ui.thumbs[current]) ui.thumbs[current].classList.add("is--current");
+
+    function navigate(direction, targetIndex = null) {
+        if (animating || length < 2) return;
+        animating = true;
+
+        const previous = current;
+        current = targetIndex !== null && targetIndex !== undefined
+            ? targetIndex
+            : direction === 1
+                ? (current < length - 1 ? current + 1 : 0)
+                : (current > 0 ? current - 1 : length - 1);
+
+        const currentSlide  = ui.slides[previous];
+        const currentInner  = ui.inner[previous];
+        const upcomingSlide = ui.slides[current];
+        const upcomingInner = ui.inner[current];
+
+        const currentOverlay = ui.overlays[previous];
+
+        const tl = gsap.timeline({
+            defaults: { duration: animationDuration, ease: "parallax" },
+            onStart() {
+                upcomingSlide.classList.add("is--current");
+                if (ui.thumbs[previous]) ui.thumbs[previous].classList.remove("is--current");
+                if (ui.thumbs[current])  ui.thumbs[current].classList.add("is--current");
+
+                // Slide uscente → overlay scurisce durante la transizione
+                if (currentOverlay) {
+                    gsap.killTweensOf(currentOverlay);
+                    gsap.to(currentOverlay, {
+                        delay: 0.2,
+                        opacity: CONFIG.slideshow.overlayOpacity,
+                        duration: animationDuration * 0.9,
+                        ease: "power3.out"
+                    });
+                }
+            },
+            onComplete() {
+                currentSlide.classList.remove("is--current");
+                if (currentOverlay) {
+                    gsap.killTweensOf(currentOverlay);
+                    gsap.set(currentOverlay, { opacity: 0 });
+                }
+                animating = false;
+            },
+        });
+
+        tl.to(currentSlide, { xPercent: -direction * 100 }, 0);
+        if (currentInner)  tl.to(currentInner,  { xPercent:  direction * 75 }, 0);
+        tl.fromTo(upcomingSlide, { xPercent:  direction * 100 }, { xPercent: 0 }, 0);
+        if (upcomingInner) tl.fromTo(upcomingInner, { xPercent: -direction * 75 }, { xPercent: 0 }, 0);
+    }
+
+    el.__slideshowStart = () => {
+        if (autoplayId || length < 2) return;
+        autoplayId = setInterval(() => navigate(1), autoplayDelay);
+    };
+
+    return () => {
+        if (autoplayId) { clearInterval(autoplayId); autoplayId = null; }
+        el.__slideshowStart = null;
+        gsap.killTweensOf([...ui.slides, ...ui.inner.filter(Boolean)]);
+        ui.slides[0]?.classList.add("is--current");
+        ui.slides.forEach((s, i) => { if (i > 0) s.classList.remove("is--current"); });
+        if (ui.thumbs[0]) ui.thumbs[0].classList.add("is--current");
+        ui.thumbs.forEach((t, i) => { if (i > 0) t.classList.remove("is--current"); });
+    };
+}
+
+    /* =========================
     BARBA
     ========================= */
     let currentReveal = null;
@@ -3842,10 +4212,11 @@ CODE MAP
     let currentSlideshowCleanup = null;
     let currentAccordionsCleanup = null;
     let currentFormSuccessCleanup = null;
-    let currentThemeScrollCleanup = null; // <-- NUOVO
-    let currentMailButtonCleanup = null; // <-- NUOVO
+    let currentThemeScrollCleanup = null; 
+    let currentMailButtonCleanup = null; 
     let currentStickyTopCleanup = null;
     let currentSmoothyCleanup = null;
+    let currentCrispSlideshowCleanup = null;
 
 
     barba.init({
@@ -3899,14 +4270,39 @@ CODE MAP
                     initCmsNextPrev(data.next.container);
 
 
-                    await runLoader(() => {
-                        // Slider init dopo il loader — container visibile, Swiper può misurare
+                    if (namespace === "home") {
+                        // Init slideshow (dentro container, cleanup gestito da Barba)
+                        currentCrispSlideshowCleanup?.();
+                        const crispWraps = Array.from(data.next.container.querySelectorAll('[data-slideshow="wrap"]'));
+                        const crispFns = crispWraps.map(wrap => initSlideShow(wrap));
+                        currentCrispSlideshowCleanup = () => crispFns.forEach(fn => { try { fn?.(); } catch (_) {} });
+
+                        // Slider Swiper PRIMA del loader (DOM visibile, Swiper può misurare)
                         currentSlidersCleanup?.();
                         currentSlidersCleanup = initSlidersSimple(data.next.container);
                         data.next.container.__slidersCleanup = currentSlidersCleanup;
 
-                        currentReveal = createRevealSequence(data.next.container);
-                    });
+                        await runLoaderHome(data.next.container, () => {
+                            // Hero già animato dal crisp loader — solo below-fold reveals
+                            const { below } = classifyReveals(data.next.container);
+                            const triggers = setupBelowFold(below);
+                            currentReveal = {
+                                timeline: null,
+                                triggers,
+                                cleanup: () => triggers.forEach(t => { try { t.kill(); } catch (_) {} }),
+                            };
+                        });
+
+                    } else {
+                        await runLoader(() => {
+                            // Slider init dopo il loader — container visibile, Swiper può misurare
+                            currentSlidersCleanup?.();
+                            currentSlidersCleanup = initSlidersSimple(data.next.container);
+                            data.next.container.__slidersCleanup = currentSlidersCleanup;
+
+                            currentReveal = createRevealSequence(data.next.container);
+                        });
+                    }
 
                     if (ScrollTrigger) requestAnimationFrame(() => ScrollTrigger.refresh(true));
                 },
@@ -3945,6 +4341,8 @@ CODE MAP
                     currentSmoothyCleanup?.();
                     currentSmoothyCleanup = null;
 
+                    currentCrispSlideshowCleanup?.();
+                    currentCrispSlideshowCleanup = null;
 
                     killAllScrollTriggers();
 
@@ -3954,6 +4352,11 @@ CODE MAP
                 enter(data) {
                     const namespace = getNamespace(data.next.container);
                     log(`=== ENTER: ${namespace} ===`);
+
+                    // FIX FLASH: nasconde immediatamente il container appena inserito nel DOM,
+                    // prima di qualsiasi init che possa causare reflow/paint.
+                    // transitionEnter() lo riporterà autoAlpha:1 con y:100vh prima dello slide-in.
+                    gsap.set(data.next.container, { autoAlpha: 0 });
 
                     initBarbaNavUpdate(data);
                     reinitWebflowForms();
@@ -3994,9 +4397,31 @@ CODE MAP
 
                     initCmsNextPrev(data.next.container);
 
+                    // Crisp slideshow (solo home, arrivando da un'altra pagina)
+                    if (namespace === "home") {
+                        currentCrispSlideshowCleanup?.();
+                        const crispWraps = Array.from(data.next.container.querySelectorAll('[data-slideshow="wrap"]'));
+                        const crispFns = crispWraps.map(wrap => initSlideShow(wrap));
+                        currentCrispSlideshowCleanup = () => crispFns.forEach(fn => { try { fn?.(); } catch (_) {} });
+                    }
 
                     return transitionEnter(data, () => {
-                        currentReveal = createRevealSequence(data.next.container);
+                        if (namespace === "home") {
+                            // Avvia autoplay slideshow
+                            data.next.container.querySelectorAll('[data-slideshow="wrap"]').forEach(wrap => {
+                                wrap.__slideshowStart?.();
+                            });
+                            // Solo below-fold reveals
+                            const { below } = classifyReveals(data.next.container);
+                            const triggers = setupBelowFold(below);
+                            currentReveal = {
+                                timeline: null,
+                                triggers,
+                                cleanup: () => triggers.forEach(t => { try { t.kill(); } catch (_) {} }),
+                            };
+                        } else {
+                            currentReveal = createRevealSequence(data.next.container);
+                        }
                     });
                 },
             },
