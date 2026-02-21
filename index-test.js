@@ -3416,6 +3416,9 @@ CODE MAP
     // FIX FLASH: overlay a 0 immediato
     if (loaderOverlays.length) gsap.set(loaderOverlays, { opacity: 0 });
 
+    // Stabilizza crisp-header su GPU: evita rasterizzazioni ripetute durante lo scale
+    gsap.set(crispHeader, { force3D: true, willChange: "transform" });
+
     let allLines = [];
 
     const tl = gsap.timeline({
@@ -3479,9 +3482,37 @@ CODE MAP
     // 2) SCALE UP + LOGO OUT — simultanei
     if (scaleUp.length) {
     const isSmall = window.matchMedia("(width < 48em)").matches;
+
+    // Calcola il fattore di scala necessario (em → px, assumendo root 16px)
+    const baseW = isSmall ? 7.5 * 16 : 10 * 16;
+    const baseH = isSmall ? 10 * 16 : 7.5 * 16;
+    const scaleX = window.innerWidth  / baseW;
+    const scaleY = window.innerHeight / baseH;
+
+    // Pre-set will-change per promuovere subito il layer GPU
+    gsap.set(scaleUp, {
+        willChange: "transform",
+        transformOrigin: "50% 50%",
+        force3D: true,
+    });
+
     tl.fromTo(scaleUp,
-        { width: isSmall ? "7.5em" : "10em", height: isSmall ? "10em" : "7.5em" },
-        { width: "100vw", height: "100dvh", duration: 2.2 },
+        { scaleX: 1, scaleY: 1 },
+        {
+            scaleX,
+            scaleY,
+            duration: 2.2,
+            ease: "expo.inOut",
+            force3D: true,
+            onComplete: () => {
+                // Converti a width/height reali dopo l'animazione (nessun jitter)
+                gsap.set(scaleUp, {
+                    clearProps: "scaleX,scaleY,willChange,transformOrigin",
+                    width: "100vw",
+                    height: "100dvh",
+                });
+            },
+        },
         "< 0.2"
     );
 }
@@ -3542,6 +3573,9 @@ CODE MAP
     tl.call(() => {
         crispHeader.classList.remove("is--loading");
         document.documentElement.classList.remove("is-loading");
+
+        // Rimuovi will-change ora che l'animazione è terminata
+        gsap.set(crispHeader, { clearProps: "willChange" });
 
         container.querySelectorAll('[data-slideshow="wrap"]').forEach(wrap => {
             wrap.__slideshowStart?.();
