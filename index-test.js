@@ -3483,36 +3483,16 @@ CODE MAP
     if (scaleUp.length) {
     const isSmall = window.matchMedia("(width < 48em)").matches;
 
-    // Calcola il fattore di scala necessario (em → px, assumendo root 16px)
-    const baseW = isSmall ? 7.5 * 16 : 10 * 16;
-    const baseH = isSmall ? 10 * 16 : 7.5 * 16;
-    const scaleX = window.innerWidth  / baseW;
-    const scaleY = window.innerHeight / baseH;
-
-    // Pre-set will-change per promuovere subito il layer GPU
+    // FIX MOBILE JITTER: promuovi GPU layer prima della zoomata (non tocca l'animazione)
     gsap.set(scaleUp, {
-        willChange: "transform",
-        transformOrigin: "50% 50%",
         force3D: true,
+        willChange: "transform, width, height",
+        backfaceVisibility: "hidden",
     });
 
     tl.fromTo(scaleUp,
-        { scaleX: 1, scaleY: 1 },
-        {
-            scaleX,
-            scaleY,
-            duration: 2.2,
-            ease: "expo.inOut",
-            force3D: true,
-            onComplete: () => {
-                // Converti a width/height reali dopo l'animazione (nessun jitter)
-                gsap.set(scaleUp, {
-                    clearProps: "scaleX,scaleY,willChange,transformOrigin",
-                    width: "100vw",
-                    height: "100dvh",
-                });
-            },
-        },
+        { width: isSmall ? "7.5em" : "10em", height: isSmall ? "10em" : "7.5em" },
+        { width: "100vw", height: "100dvh", duration: 2.2 },
         "< 0.2"
     );
 }
