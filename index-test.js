@@ -209,7 +209,7 @@ CODE MAP
             stagger: 0.3, // stagger tra blocchi above fold
             childStagger: 0.2,
             ease: "power2.out",
-            triggerStart: "top 85%",
+            triggerStart: "top 95%",
         },
 
         // Reveal children stagger [data-reveal-children="stagger"]
@@ -691,6 +691,29 @@ CODE MAP
     }
 
     /* =========================
+       THEME HELPERS (container-scoped)
+       - Never set theme vars on html/body during Barba transitions.
+       - Apply vars only on the current Barba container.
+    ========================= */
+
+    function getThemeVars(themeName) {
+        try {
+            if (window.colorThemes?.getTheme) {
+                return window.colorThemes.getTheme(themeName);
+            }
+        } catch (_) { }
+        return null;
+    }
+
+    function applyThemeToContainer(container, themeName) {
+        if (!gsap || !container) return;
+        const vars = getThemeVars(themeName);
+        if (!vars) return;
+        // IMPORTANT: only the container, never html/body.
+        gsap.set(container, vars);
+    }
+
+    /* =========================
        WEBFLOW RE-INIT (Forms)
        - With Barba, Webflow's form AJAX binding can be lost on next containers.
        - If forms are not re-bound, submit falls back to native POST -> hard refresh.
@@ -870,6 +893,7 @@ CODE MAP
                   // Osmo uses clamp() to force animation to always start from 0
                   start: "clamp(top 92%)",
                   once: true,
+                  markers: CONFIG.debug,
                 },
               });
 
@@ -1004,209 +1028,255 @@ CODE MAP
     }
 
     /* =========================
-       SIMPLE SLIDER (Swiper v8) — FIXED
-       - No double init (removed bindSlidersSimpleOnce, Barba handles lifecycle)
-       - Smart ResizeObserver (update, don't destroy+recreate)
-       - Correct navigation selectors ([data-slider='next'] button)
-       - Works variant alternation aligned with CSS selectors
-    ========================= */
-    function initSlidersSimple(scope = document) {
-        const root = getRoot(scope);
+   SIMPLE SLIDER (Swiper v8) — UPDATED
+   - clip-path stagger reveal (non interferisce con Swiper loop)
+   - Dynamic initialSlide per centeredSlides (slide 1 sempre prima a sinistra)
+   - No double init, smart ResizeObserver
+   - Works variant alternation
+   ========================= */
+function initSlidersSimple(scope = document) {
+    const root = getRoot(scope);
 
-        if (typeof window.Swiper !== "function") {
-            log("[SLIDERS] Swiper not found, skip");
-            return () => { };
+    if (typeof window.Swiper !== "function") {
+        log("[SLIDERS] Swiper not found, skip");
+        return () => { };
+    }
+
+    const components = root.querySelectorAll(
+        "[data-slider='component']:not([data-slider='component'] [data-slider='component'])"
+    );
+
+    if (!components.length) return () => { };
+
+    const cleanups = [];
+
+    components.forEach((component) => {
+        if (!component) return;
+        if (component.dataset.scriptInitialized === "true") return;
+        component.dataset.scriptInitialized = "true";
+
+        const swiperElement = component.querySelector(".slider_element");
+        const swiperWrapper = component.querySelector(".slider_list");
+        if (!swiperElement || !swiperWrapper) return;
+
+        // ---- Helper: unwrap Webflow CMS list ----
+        function removeCMSList(slot) {
+            const dynList = slot.querySelector(":scope > .w-dyn-list")
+                || slot.querySelector(":scope > .u-display-contents > .w-dyn-list")
+                || slot.querySelector(":scope > .u-display-contents > .u-display-contents > .w-dyn-list");
+
+            if (!dynList) return;
+
+            const dynItems = dynList.querySelector(".w-dyn-items");
+            if (!dynItems) {
+                dynList.remove();
+                return;
+            }
+
+            // FIX: rimuovi "swiper-wrapper" da .w-dyn-items per evitare doppio wrapper
+            dynItems.classList.remove("swiper-wrapper");
+
+            // Estrai le slide reali dai .w-dyn-item
+            const realSlides = [];
+            Array.from(dynItems.children).forEach((item) => {
+                if (!item.classList.contains("w-dyn-item")) return;
+                const slide = item.firstElementChild;
+                if (slide) realSlides.push(slide);
+            });
+
+            // Appendi direttamente al wrapper Swiper
+            realSlides.forEach((slide) => slot.appendChild(slide));
+
+            // Rimuovi il wrapper CMS completo
+            dynList.remove();
+
+            // Pulizia .u-display-contents vuoti
+            Array.from(slot.children).forEach((child) => {
+                if (child.classList.contains("u-display-contents") && child.children.length === 0) {
+                    child.remove();
+                }
+            });
         }
 
-        const components = root.querySelectorAll(
-            "[data-slider='component']:not([data-slider='component'] [data-slider='component'])"
-        );
+        // 1. Unwrap CMS
+        removeCMSList(swiperWrapper);
 
-        if (!components.length) return () => { };
+        // 2. Assign swiper-slide class
+        [...swiperWrapper.children].forEach((el) => el.classList.add("swiper-slide"));
 
-        const cleanups = [];
+        // 3. Works: alternanza varianti card (una sola volta, prima di Swiper)
+        applyWorksVariantAlternation(component);
 
-        components.forEach((component) => {
-            if (!component) return;
-            if (component.dataset.scriptInitialized === "true") return;
-            component.dataset.scriptInitialized = "true";
+        // Bail if no slides
+        const slideCount = swiperWrapper.children.length;
+        if (slideCount <= 0) {
+            delete component.dataset.scriptInitialized;
+            return;
+        }
 
-            const swiperElement = component.querySelector(".slider_element");
-            const swiperWrapper = component.querySelector(".slider_list");
-            if (!swiperElement || !swiperWrapper) return;
+        // Loop stability (required with slidesPerView:'auto' + centeredSlides)
+        const safeLoopedSlides = Math.max(1, Math.min(slideCount, 12));
 
-            // ---- Helper: unwrap Webflow CMS list ----
-            function removeCMSList(slot) {
-                const dynList = Array.from(slot.children).find((child) =>
-                    child.classList.contains("w-dyn-list")
+        // Read attrs from swiper element
+        const followFinger = swiperElement.getAttribute("data-follow-finger") !== "false";
+        const freeMode = swiperElement.getAttribute("data-free-mode") === "true";
+        const mousewheel = swiperElement.getAttribute("data-mousewheel") === "true";
+        const slideToClickedSlide = swiperElement.getAttribute("data-slide-to-clicked") === "true";
+        const speed = +swiperElement.getAttribute("data-speed") || 600;
+        const loop = swiperElement.getAttribute("data-loop") !== "false";
+
+        let swiperInstance = null;
+        let ro = null;
+
+        function getSlideCount() {
+            const offset = component.querySelector(".slider_offset");
+            if (!offset) return 3;
+            const style = getComputedStyle(offset);
+            const val = (style.getPropertyValue("--slide-count") || "").trim();
+            return parseFloat(val) || 3;
+        }
+
+        // Correct navigation selectors (button inside the wrapper)
+        const nextBtn = component.querySelector("[data-slider='next'] button")
+            || component.querySelector("[data-slider='next']");
+        const prevBtn = component.querySelector("[data-slider='previous'] button")
+            || component.querySelector("[data-slider='previous']");
+        const paginationEl = component.querySelector(".slider_bullet_list");
+
+        // Variant-specific config
+        const variant = (component.getAttribute("data-slider-variant") || "").trim().toLowerCase();
+        const isArchive = variant === "archive";
+
+        // 4. Init Swiper (after alternation)
+        const initialSlideCount = getSlideCount();
+        const initialShouldCenter = initialSlideCount > 1.5;
+
+        // Dynamic initialSlide: centra in modo che la slide 1 sia la prima visibile a sinistra
+        const initialSlide = initialShouldCenter
+            ? Math.floor(initialSlideCount / 2)
+            : 0;
+
+        try {
+            swiperInstance = new window.Swiper(swiperElement, {
+                slidesPerView: "auto",
+                centeredSlides: initialShouldCenter,
+                initialSlide: initialSlide,
+                autoHeight: false,
+                speed,
+                loop: loop && slideCount > 1,
+                loopedSlides: safeLoopedSlides,
+                loopAdditionalSlides: safeLoopedSlides,
+                followFinger,
+                freeMode,
+                slideToClickedSlide,
+                mousewheel: {
+                    enabled: mousewheel,
+                    forceToAxis: true,
+                },
+                keyboard: {
+                    enabled: true,
+                    onlyInViewport: true,
+                },
+                // Only set navigation/pagination if elements exist
+                ...(nextBtn && prevBtn
+                    ? { navigation: { nextEl: nextBtn, prevEl: prevBtn } }
+                    : {}),
+                ...(paginationEl
+                    ? {
+                        pagination: {
+                            el: paginationEl,
+                            bulletActiveClass: "is-active",
+                            bulletClass: "slider_bullet_item",
+                            bulletElement: "button",
+                            clickable: true,
+                        },
+                    }
+                    : {}),
+                // Archive variant: continuous marquee scroll
+                ...(isArchive
+                    ? {
+                        freeMode: true,
+                        speed: 6000,
+                        cssEase: "linear",
+                        autoplay: {
+                            delay: 0,
+                            disableOnInteraction: false,
+                            pauseOnMouseEnter: true,
+                        },
+                        allowTouchMove: true,
+                        watchOverflow: true,
+                    }
+                    : {}),
+                slideActiveClass: "is-active",
+                slideDuplicateActiveClass: "is-active",
+            });
+        } catch (e) {
+            console.warn("[SLIDERS] Swiper init failed:", e);
+            delete component.dataset.scriptInitialized;
+            return;
+        }
+
+        // ========================================
+        // STAGGER REVEAL via clip-path
+        // Non interferisce con Swiper (le slide mantengono width/height)
+        // Include cloni per supportare centeredSlides
+        // ========================================
+        if (!isArchive && slideCount > 1 && ScrollTrigger) {
+            const allSlides = Array.from(swiperWrapper.querySelectorAll(".swiper-slide"));
+
+            if (allSlides.length) {
+                const sorted = [...allSlides].sort((a, b) =>
+                    a.getBoundingClientRect().left - b.getBoundingClientRect().left
                 );
-                if (!dynList) return;
-
-                const nestedItems = dynList?.firstElementChild?.children;
-                if (!nestedItems) return;
-
-                const staticWrapper = [...slot.children];
-                [...nestedItems].forEach((el) => {
-                    if (el?.firstElementChild) slot.appendChild(el.firstElementChild);
-                });
-                staticWrapper.forEach((el) => el.remove());
+                gsap.set(sorted, { autoAlpha: 0 });
+                // Esponi per il reveal system (animateSection lo anima nel timeline della section)
+                component.__sliderRevealTargets = sorted;
             }
+        }
 
-            // 1. Unwrap CMS
-            removeCMSList(swiperWrapper);
+        // Smart ResizeObserver — update params, don't destroy+recreate
+        try {
+            const offsetEl = component.querySelector(".slider_offset");
+            if (offsetEl && typeof window.ResizeObserver === "function") {
+                let resizeTimeout;
+                ro = new ResizeObserver(() => {
+                    clearTimeout(resizeTimeout);
+                    resizeTimeout = setTimeout(() => {
+                        if (!swiperInstance) return;
+                        const newCount = getSlideCount();
+                        const newShouldCenter = newCount > 1.5;
 
-            // 2. Assign swiper-slide class
-            [...swiperWrapper.children].forEach((el) => el.classList.add("swiper-slide"));
-
-            // 3. Works: alternanza varianti card (una sola volta, prima di Swiper)
-            applyWorksVariantAlternation(component);
-
-            // Bail if no slides
-            const slideCount = swiperWrapper.children.length;
-            if (slideCount <= 0) {
-                delete component.dataset.scriptInitialized;
-                return;
-            }
-
-            // Loop stability (required with slidesPerView:'auto' + centeredSlides)
-            const safeLoopedSlides = Math.max(1, Math.min(slideCount, 12));
-
-            // Read attrs from swiper element
-            const followFinger = swiperElement.getAttribute("data-follow-finger") !== "false";
-            const freeMode = swiperElement.getAttribute("data-free-mode") === "true";
-            const mousewheel = swiperElement.getAttribute("data-mousewheel") === "true";
-            const slideToClickedSlide = swiperElement.getAttribute("data-slide-to-clicked") === "true";
-            const speed = +swiperElement.getAttribute("data-speed") || 600;
-            const loop = swiperElement.getAttribute("data-loop") !== "false";
-
-            let swiperInstance = null;
-            let ro = null;
-
-            function getSlideCount() {
-                const offset = component.querySelector(".slider_offset");
-                if (!offset) return 3;
-                const style = getComputedStyle(offset);
-                const val = (style.getPropertyValue("--slide-count") || "").trim();
-                return parseFloat(val) || 3;
-            }
-
-            // Correct navigation selectors (button inside the wrapper)
-            const nextBtn = component.querySelector("[data-slider='next'] button")
-                || component.querySelector("[data-slider='next']");
-            const prevBtn = component.querySelector("[data-slider='previous'] button")
-                || component.querySelector("[data-slider='previous']");
-            const paginationEl = component.querySelector(".slider_bullet_list");
-
-            // Variant-specific config
-            const variant = (component.getAttribute("data-slider-variant") || "").trim().toLowerCase();
-            const isArchive = variant === "archive";
-
-            // 4. Init Swiper (after alternation)
-            const initialSlideCount = getSlideCount();
-            const initialShouldCenter = initialSlideCount > 1.5;
-
-            try {
-                swiperInstance = new window.Swiper(swiperElement, {
-                    slidesPerView: "auto",
-                    centeredSlides: initialShouldCenter,
-                    autoHeight: false,
-                    speed,
-                    loop: loop && slideCount > 1,
-                    // Loop stability (required with slidesPerView:'auto' + centeredSlides)
-                    loopedSlides: safeLoopedSlides,
-                    loopAdditionalSlides: safeLoopedSlides,
-                    followFinger,
-                    freeMode,
-                    slideToClickedSlide,
-                    mousewheel: {
-                        enabled: mousewheel,
-                        forceToAxis: true,
-                    },
-                    keyboard: {
-                        enabled: true,
-                        onlyInViewport: true,
-                    },
-                    // Only set navigation/pagination if elements exist
-                    ...(nextBtn && prevBtn
-                        ? { navigation: { nextEl: nextBtn, prevEl: prevBtn } }
-                        : {}),
-                    ...(paginationEl
-                        ? {
-                            pagination: {
-                                el: paginationEl,
-                                bulletActiveClass: "is-active",
-                                bulletClass: "slider_bullet_item",
-                                bulletElement: "button",
-                                clickable: true,
-                            },
+                        if (swiperInstance.params.centeredSlides !== newShouldCenter) {
+                            swiperInstance.params.centeredSlides = newShouldCenter;
                         }
-                        : {}),
-                    // Archive variant: continuous marquee scroll
-                    ...(isArchive
-                        ? {
-                            freeMode: true,
-                            speed: 6000,
-                            cssEase: "linear",
-                            autoplay: {
-                                delay: 0,
-                                disableOnInteraction: false,
-                                pauseOnMouseEnter: true,
-                            },
-                            allowTouchMove: true,
-                            watchOverflow: true,
-                        }
-                        : {}),
-                    slideActiveClass: "is-active",
-                    slideDuplicateActiveClass: "is-active",
+
+                        try { swiperInstance.update(); } catch (_) { }
+                    }, 150);
                 });
-            } catch (e) {
-                console.warn("[SLIDERS] Swiper init failed:", e);
-                delete component.dataset.scriptInitialized;
-                return;
+                ro.observe(offsetEl);
             }
+        } catch (_) { }
 
-            // Smart ResizeObserver — update params, don't destroy+recreate
+        const cleanup = () => {
+            try { if (ro) ro.disconnect(); } catch (_) { }
+            ro = null;
+            try { if (swiperInstance) swiperInstance.destroy(true, true); } catch (_) { }
+            swiperInstance = null;
             try {
-                const offsetEl = component.querySelector(".slider_offset");
-                if (offsetEl && typeof window.ResizeObserver === "function") {
-                    let resizeTimeout;
-                    ro = new ResizeObserver(() => {
-                        clearTimeout(resizeTimeout);
-                        resizeTimeout = setTimeout(() => {
-                            if (!swiperInstance) return;
-                            const newCount = getSlideCount();
-                            const newShouldCenter = newCount > 1.5;
-
-                            if (swiperInstance.params.centeredSlides !== newShouldCenter) {
-                                swiperInstance.params.centeredSlides = newShouldCenter;
-                            }
-
-                            try { swiperInstance.update(); } catch (_) { }
-                        }, 150);
-                    });
-                    ro.observe(offsetEl);
-                }
+                delete component.dataset.scriptInitialized;
+                delete component.dataset.worksAlternated;
             } catch (_) { }
+        };
 
-            const cleanup = () => {
-                try { if (ro) ro.disconnect(); } catch (_) { }
-                ro = null;
-                try { if (swiperInstance) swiperInstance.destroy(true, true); } catch (_) { }
-                swiperInstance = null;
-                try {
-                    delete component.dataset.scriptInitialized;
-                    delete component.dataset.worksAlternated;
-                } catch (_) { }
-            };
+        cleanups.push(cleanup);
+    });
 
-            cleanups.push(cleanup);
-        });
-
-        return () => cleanups.forEach((fn) => { try { fn(); } catch (_) { } });
-    }
+    return () => cleanups.forEach((fn) => { try { fn(); } catch (_) { } });
+}
 
     // Barba lifecycle (once/leave/enter) handles init and cleanup.
     // No bindSlidersSimpleOnce() — no double initialization.
+
 
     function getHeroConfig(namespace) {
         const config = HERO_REGISTRY[namespace] || HERO_DEFAULT;
@@ -1568,7 +1638,7 @@ CODE MAP
 
         let barbaContainer = document.querySelector("[data-barba='container']");
         const SHIFT_Y        = 30;
-        const SHIFT_DURATION = 0.9;
+        const SHIFT_DURATION = 0.75; // faster close/open parallax, still smooth
         const SHIFT_EASE     = "power2.out";
 
         let tl = gsap.timeline();
@@ -1600,22 +1670,29 @@ CODE MAP
                 .fromTo(menuFooter,  { autoAlpha: 0, yPercent: 30 }, { autoAlpha: 1, yPercent: 0, duration: 0.7 }, "<0.3");
         };
 
-        /* ---- CLOSE (invariato) ---- */
+        /* ---- CLOSE (updated, faster) ---- */
         const closeNav = () => {
             navWrap.setAttribute("data-nav", "closed");
             barbaContainer = document.querySelector("[data-barba='container']");
 
             tl.clear()
-                .to(menuLinks,   { yPercent: -60, autoAlpha: 0, duration: 0.45, stagger: 0.03, ease: "mainOut" })
-                .to(menuIndexs,  { autoAlpha: 0, duration: 0.3 }, "<")
-                .to(menuDivider, { scaleX: 0, transformOrigin: "right center", duration: 0.4, ease: "mainOut" }, "<")
-                .to(menuFooter,  { autoAlpha: 0, yPercent: 20, duration: 0.35 }, "<")
-                .to(barbaContainer,   { y: 0, duration: 0.3, ease: "power2.inOut" }, "<")
-                .to(menuButtonLayout, { yPercent: 0, duration: 0.9 }, "<")
+                // tighter fade/shift on menu items
+                .to(menuLinks,   { yPercent: -50, autoAlpha: 0, duration: 0.34, stagger: 0.025, ease: "mainOut" })
+                .to(menuIndexs,  { autoAlpha: 0, duration: 0.22, ease: "mainOut" }, "<")
+                .to(menuDivider, { scaleX: 0, transformOrigin: "right center", duration: 0.30, ease: "mainOut" }, "<")
+                .to(menuFooter,  { autoAlpha: 0, yPercent: 18, duration: 0.26, ease: "mainOut" }, "<")
+
+                // bring page back under the nav a bit quicker
+                .to(barbaContainer,   { y: 0, duration: 0.22, ease: "power2.inOut" }, "<")
+                .to(menuButtonLayout, { yPercent: 0, duration: 0.70, ease: "mainOut" }, "<")
+
+                // panel + overlay close
                 .set(barbaContainer, { y: SHIFT_Y })
-                .to(bgPanels, { yPercent: -101, duration: 0.65, ease: "mainOut" }, "<")
-                .to(overlay,  { autoAlpha: 0,   duration: 0.5,  ease: "power2.inOut" }, "<")
-                .to(barbaContainer, { y: 0, duration: SHIFT_DURATION, ease: SHIFT_EASE }, "<0.2")
+                .to(bgPanels, { yPercent: -101, duration: 0.50, ease: "mainOut" }, "<")
+                .to(overlay,  { autoAlpha: 0,   duration: 0.38, ease: "power2.inOut" }, "<")
+
+                // final settle (parallax) — slightly earlier than before
+                .to(barbaContainer, { y: 0, duration: SHIFT_DURATION, ease: SHIFT_EASE }, "<0.14")
                 .set(navWrap,        { display: "none" })
                 .set(barbaContainer, { clearProps: "y" });
         };
@@ -1978,7 +2055,7 @@ CODE MAP
         // Filtra elementi non validi
         return elements.filter((el) => {
             if (el.classList.contains("w-condition-invisible")) return false;
-            if (el.classList.contains("swiper-slide-duplicate")) return false;
+            if (el.closest(".slider_list")) return false;
             return true;
         });
     }
@@ -2021,14 +2098,7 @@ CODE MAP
                 crispHeader.classList.remove("is--loading", "is--hidden");
             }
 
-            try {
-                if (window.colorThemes?.getTheme) {
-                    const lightVars = window.colorThemes.getTheme("light");
-                    if (lightVars) {
-                        gsap.set(container, lightVars); // solo il container, non body/html
-                    }
-                }
-            } catch (_) {}
+            applyThemeToContainer(container, "light");
             container.querySelectorAll("[data-reveal='section'], [data-reveal='divider']").forEach(el => {
                 const children = getAnimatableChildren(el);
                 if (children.length) gsap.set(children, { autoAlpha: 0 });
@@ -2043,18 +2113,7 @@ CODE MAP
         const namespace = getNamespace(container);
         gsap.set(container, { autoAlpha: 1 });
 
-        // Reset tema a light: sia sul container che su body/html
-        // (body/html hanno il background via CSS vars → mobile flash fix)
-        try {
-            if (window.colorThemes?.getTheme) {
-                const lightVars = window.colorThemes.getTheme("light");
-                if (lightVars) {
-                    gsap.set(container, lightVars);
-                    gsap.set(document.body, lightVars);
-                    gsap.set(document.documentElement, lightVars);
-                }
-            }
-        } catch (_) {}
+        applyThemeToContainer(container, "light");
 
         const heroContent = container.querySelector("[data-hero-content]");
         if (heroContent) {
@@ -2190,6 +2249,10 @@ CODE MAP
         };
     }
 
+    // [THEME] removed: do not set html theme vars during transitions
+    // [THEME] removed: do not set html theme vars during transitions
+    // [THEME] removed: container-scoped theme only
+
     function normalizeSliderDom(component, swiperWrapper) {
         // Normalizzazione DOM (Webflow wrappers)
         flattenDisplayContents(swiperWrapper);
@@ -2209,208 +2272,6 @@ CODE MAP
 
         return slideCount;
     }
-
-    function initSliders(scope = document) {
-        if (!CONFIG.sliders?.enabled) return () => { };
-
-        const SwiperClass = window.Swiper;
-        if (!SwiperClass) {
-            log("[SLIDERS] Swiper not found, skip");
-            return () => { };
-        }
-
-        const root = getRoot(scope);
-        const selector = CONFIG.sliders?.componentSelector || "[data-slider]";
-        const components = root.querySelectorAll(selector);
-        if (!components.length) return () => { };
-
-        const instances = [];
-
-        components.forEach((component) => {
-            if (component.dataset.scriptInitialized === "true") return;
-            component.dataset.scriptInitialized = "true";
-
-            const swiperElement = component.querySelector(".slider_element");
-            const swiperWrapper = component.querySelector(".slider_list");
-            if (!swiperElement || !swiperWrapper) return;
-
-            const cfg = getSliderConfigFor(component);
-
-            // DOM normalization (always), then optional behaviors (variant-driven)
-            if (cfg.pruneEmptySlides === false) {
-                // temporarily bypass pruneEmptySlides by shadowing the function call
-                // We still normalize display contents + CMS list.
-                flattenDisplayContents(swiperWrapper);
-                try {
-                    if (typeof removeCMSList === "function") removeCMSList(swiperWrapper);
-                } catch (_) { }
-                [...swiperWrapper.children].forEach((el) => el.classList.add("swiper-slide"));
-
-                const slideCount = swiperWrapper.children.length;
-                if (cfg.setCssSlideCount !== false) {
-                    component.style.setProperty("--slide-count", String(Math.max(slideCount, 1)));
-                }
-
-                if (slideCount <= 0) {
-                    // Nothing to init: avoid Swiper crash (updateSlidesClasses expects at least one slide)
-                    delete component.dataset.scriptInitialized;
-                    return;
-                }
-
-                // Hide controls if single slide (variant-driven)
-                if (cfg.hideControlsIfSingle && slideCount <= 1) {
-                    const controls = component.querySelector(".slider_controls");
-                    if (controls) controls.style.display = "none";
-                    return;
-                }
-            } else {
-                // Optional: prune empty slides (variant-driven)
-                if (cfg.pruneEmptySlides) {
-                    try { pruneEmptySlides(swiperWrapper); } catch (_) { }
-                }
-
-                const slideCount = normalizeSliderDom(component, swiperWrapper);
-
-                if (slideCount <= 0) {
-                    // Nothing to init: avoid Swiper crash (updateSlidesClasses expects at least one slide)
-                    delete component.dataset.scriptInitialized;
-                    return;
-                }
-
-                // Hide controls if single slide (variant-driven)
-                if (cfg.hideControlsIfSingle && slideCount <= 1) {
-                    const controls = component.querySelector(".slider_controls");
-                    if (controls) controls.style.display = "none";
-                    return;
-                }
-            }
-
-            // Attribute overrides (last layer)
-            const followFinger = readBoolAttr(swiperElement, "data-follow-finger", cfg.followFinger);
-            const freeMode = readBoolAttr(swiperElement, "data-free-mode", cfg.freeMode);
-            const mousewheel = readBoolAttr(swiperElement, "data-mousewheel", cfg.mousewheel);
-            const slideToClickedSlide = readBoolAttr(swiperElement, "data-slide-to-clicked", cfg.slideToClickedSlide);
-            const speed = readNumAttr(swiperElement, "data-speed", cfg.speed);
-            const loop = readBoolAttr(swiperElement, "data-loop", cfg.loop);
-
-            // Swiper loop requires at least 2 slides; force-disable when not possible.
-            const effectiveLoop = loop && swiperWrapper.children.length > 1;
-
-            const effectAttr = readStrAttr(swiperElement, "data-effect", "").trim().toLowerCase();
-            const effect = effectAttr || (cfg.effect || "");
-
-            const swiperConfig = {
-                slidesPerView: cfg.slidesPerView,
-                centeredSlides: cfg.centeredSlides,
-                autoHeight: cfg.autoHeight,
-                speed,
-
-                followFinger,
-                freeMode,
-                slideToClickedSlide,
-
-                loop: effectiveLoop,
-                // Loop stability (required with slidesPerView:'auto' + centeredSlides)
-                ...(effectiveLoop
-                    ? {
-                        loopedSlides: Math.max(1, Math.min(swiperWrapper.children.length, 12)),
-                        loopAdditionalSlides: Math.max(
-                            Number(cfg.loopAdditionalSlides) || 0,
-                            Math.max(1, Math.min(swiperWrapper.children.length, 12))
-                        ),
-                    }
-                    : {}),
-
-                mousewheel: {
-                    enabled: mousewheel,
-                    forceToAxis: cfg.mousewheelForceToAxis,
-                },
-
-                keyboard: {
-                    enabled: cfg.keyboardEnabled,
-                    onlyInViewport: cfg.keyboardOnlyInViewport,
-                },
-
-                navigation: {
-                    nextEl: component.querySelector("[data-slider='next'] button"),
-                    prevEl: component.querySelector("[data-slider='previous'] button"),
-                },
-
-                pagination: {
-                    el: component.querySelector(".slider_bullet_list"),
-                    bulletActiveClass: "is-active",
-                    bulletClass: "slider_bullet_item",
-                    bulletElement: "button",
-                    clickable: true,
-                },
-
-                slideActiveClass: "is-active",
-                slideDuplicateActiveClass: "is-active",
-            };
-
-            // Remove any initialSlide override for works variant
-            // (If initialSlide was set conditionally for works, it should not be set at all or always 0)
-            // Effect handling
-            if (effect === "fade") {
-                swiperConfig.effect = "fade";
-                swiperConfig.fadeEffect = { crossFade: !!cfg.fadeCrossFade };
-            }
-
-            try {
-                const instance = new SwiperClass(swiperElement, swiperConfig);
-                component.__swiper = instance;
-                instances.push(component);
-
-                log(`[SLIDERS] init OK (${cfg.name})`, component);
-            } catch (e) {
-                console.warn("[SLIDERS] init error:", e);
-            }
-        });
-
-        // Cleanup per scope
-        // NOTE: two-phase cleanup.
-        // - "soft": disable interactions immediately (no visual reset)
-        // - "hard": destroy Swiper instances (still keep cleanStyles=false)
-        // Default (no args) remains HARD to preserve existing behavior.
-        return (mode = "hard") => {
-            const phase = String(mode || "hard").toLowerCase();
-            instances.forEach((component) => {
-                const instance = component.__swiper;
-                // Always stop reacting to input immediately.
-                try { component.style.pointerEvents = "none"; } catch (_) { }
-                try {
-                    const el = component.querySelector(".slider_element");
-                    if (el) el.style.pointerEvents = "none";
-                } catch (_) { }
-                if (phase === "soft") {
-                    // Do NOT destroy: keep current translate/active slide to avoid jump-to-first-slide.
-                    // Best-effort: disable internal listeners without touching layout.
-                    try {
-                        if (instance && typeof instance.disable === "function") instance.disable();
-                    } catch (_) { }
-                    try {
-                        if (instance && typeof instance.detachEvents === "function") instance.detachEvents();
-                    } catch (_) { }
-                    try {
-                        if (instance) {
-                            instance.allowTouchMove = false;
-                            instance.enabled = false;
-                        }
-                    } catch (_) { }
-                    return;
-                }
-                // HARD phase: remove instance (but keep cleanStyles=false to avoid visible snap).
-                try {
-                    // destroy(deleteInstance=true, cleanStyles=false)
-                    instance?.destroy?.(true, false);
-                } catch (_) { }
-                component.__swiper = null;
-                try { delete component.dataset.scriptInitialized; } catch (_) { }
-            });
-        };
-    }
-
-
 
 
 
@@ -2519,6 +2380,7 @@ CODE MAP
                         trigger: wrap,
                         start: "top bottom",
                         end: "bottom top",
+                        markers: CONFIG.debug,
                         onEnter: () => tl.play(),
                         onEnterBack: () => tl.play(),
                         onLeave: () => tl.pause(),
@@ -2781,7 +2643,7 @@ CODE MAP
     }
 
 
-    /* =========================
+     /* =========================
        THEME SCROLL ANIMATION (per-container)
        - Anima body theme su scroll-trigger
        - Richiede colorThemes global API
@@ -2790,95 +2652,93 @@ CODE MAP
     ========================= */
 
     function initThemeScrollAnimation(scope = document) {
-        if (!gsap || !ScrollTrigger) {
-            log("[THEME SCROLL] GSAP o ScrollTrigger mancante, skip");
-            return () => { };
-        }
+  if (!gsap || !ScrollTrigger) {
+    log("[THEME SCROLL] GSAP o ScrollTrigger mancante, skip");
+    return () => {};
+  }
 
-        const root = getRoot(scope);
-        const container = (scope !== document) ? scope : document.querySelector("[data-barba='container']");
-        const triggers = root.querySelectorAll("[data-animate-theme-to]");
-        if (!triggers.length) return () => { };
+  const root = getRoot(scope);
+  const triggers = root.querySelectorAll("[data-animate-theme-to]");
+  if (!triggers.length) return () => {};
 
-        const scrollTriggers = [];
+  const scrollTriggers = [];
 
-        // NUOVO: Funzione di init vera e propria
-        const initTriggers = () => {
-            // Controlla di nuovo se colorThemes è pronto
-            if (!window.colorThemes || typeof window.colorThemes.getTheme !== "function") {
-                log("[THEME SCROLL] colorThemes API ancora non disponibile");
-                return;
-            }
-
-            triggers.forEach((trigger) => {
-                const themeName = trigger.getAttribute("data-animate-theme-to");
-                const brandName = trigger.getAttribute("data-animate-brand-to");
-
-                if (!themeName || themeName.trim() === "" || themeName.toLowerCase() === "none") {
-                    return;
-                }
-
-                let themeVars;
-                try {
-                    themeVars = window.colorThemes.getTheme(themeName, brandName);
-                } catch (e) {
-                    console.warn("[THEME SCROLL] Errore nel recupero tema:", e);
-                    return;
-                }
-
-                if (!themeVars || typeof themeVars !== "object") {
-                    console.warn("[THEME SCROLL] Tema non valido:", themeName, brandName);
-                    return;
-                }
-
-                const st = ScrollTrigger.create({
-                    trigger: trigger,
-                    start: "top center",
-                    end: "bottom center",
-                    onToggle: ({ isActive }) => {
-                        if (isActive) {
-                            gsap.to(container, {
-                                ...themeVars,
-                                duration: 0.6,
-                                ease: "power2.out",
-                                overwrite: "auto",
-                            });
-                            log(`[THEME SCROLL] Activated: ${themeName}${brandName ? ` (${brandName})` : ""}`);
-                        }
-                    },
-                });
-
-                scrollTriggers.push(st);
-            });
-
-            log(`[THEME SCROLL] Init OK: ${scrollTriggers.length} triggers`);
-        };
-
-        // NUOVO: Se colorThemes è già disponibile, init subito
-        if (window.colorThemes && typeof window.colorThemes.getTheme === "function") {
-            initTriggers();
-        } else {
-            // Altrimenti aspetta l'evento
-            log("[THEME SCROLL] Aspetto evento colorThemesReady...");
-
-            const onReady = () => {
-                initTriggers();
-                document.removeEventListener("colorThemesReady", onReady);
-            };
-
-            document.addEventListener("colorThemesReady", onReady);
-        }
-
-        // Cleanup
-        return () => {
-            scrollTriggers.forEach((st) => {
-                try {
-                    st.kill();
-                } catch (_) { }
-            });
-            scrollTriggers.length = 0;
-        };
+  const initTriggers = () => {
+    if (!window.colorThemes || typeof window.colorThemes.getTheme !== "function") {
+      log("[THEME SCROLL] colorThemes API ancora non disponibile");
+      return;
     }
+
+    triggers.forEach((trigger) => {
+      const themeName = trigger.getAttribute("data-animate-theme-to");
+      const brandName = trigger.getAttribute("data-animate-brand-to");
+
+      if (!themeName || themeName.trim() === "" || themeName.toLowerCase() === "none") return;
+
+      let themeVars;
+      try {
+        themeVars = window.colorThemes.getTheme(themeName, brandName);
+      } catch (e) {
+        console.warn("[THEME SCROLL] Errore nel recupero tema:", e);
+        return;
+      }
+
+      if (!themeVars || typeof themeVars !== "object") {
+        console.warn("[THEME SCROLL] Tema non valido:", themeName, brandName);
+        return;
+      }
+
+      const st = ScrollTrigger.create({
+        trigger,
+        start: "top center",
+        end: "bottom center",
+        markers: CONFIG.debug,
+        onToggle: ({ isActive }) => {
+          if (!isActive) return;
+
+          const targetContainer =
+            trigger.closest("[data-barba='container']") ||
+            document.querySelector("[data-barba='container']");
+
+          if (!targetContainer) return;
+
+          gsap.to(targetContainer, {
+            ...themeVars,
+            duration: 0.6,
+            ease: "power2.out",
+            overwrite: "auto",
+          });
+        },
+      });
+
+      scrollTriggers.push(st);
+    });
+
+    log(`[THEME SCROLL] Init OK: ${scrollTriggers.length} triggers`);
+  };
+
+  // init immediato o attesa evento
+  if (window.colorThemes && typeof window.colorThemes.getTheme === "function") {
+    initTriggers();
+  } else {
+    log("[THEME SCROLL] Aspetto evento colorThemesReady...");
+
+    const onReady = () => {
+      initTriggers();
+      document.removeEventListener("colorThemesReady", onReady);
+    };
+
+    document.addEventListener("colorThemesReady", onReady);
+  }
+
+  // cleanup
+  return () => {
+    scrollTriggers.forEach((st) => {
+      try { st.kill(); } catch (_) {}
+    });
+    scrollTriggers.length = 0;
+  };
+}
 
     /* =========================
     MAIL BUTTON HOVER THEME (per-container)
@@ -3085,11 +2945,13 @@ CODE MAP
         const staggerable = getStaggerableElements(section);
         const minCount = CONFIG.revealChildren?.minCount || 2;
 
-        // Se abbiamo abbastanza elementi staggerabili
-        if (staggerable.length >= minCount) {
+        // Slider reveal: se la section contiene uno slider con target pronti
+        const sliderComponent = section.querySelector("[data-slider='component']");
+        const sliderTargets = sliderComponent?.__sliderRevealTargets || null;
+
+        if (staggerable.length >= minCount || sliderTargets) {
             const tl = gsap.timeline();
 
-            // Anima i children normali (esclusi quelli staggerabili)
             const normalChildren = children.filter(
                 (child) => !child.hasAttribute("data-reveal-children")
             );
@@ -3103,14 +2965,24 @@ CODE MAP
                 }, 0);
             }
 
-            // Stagger degli elementi marcati (usa config dedicata)
-            const revealDelay = CONFIG.revealChildren.delay || 0;
-            tl.to(staggerable, {
-                autoAlpha: 1,
-                duration: CONFIG.revealChildren.duration,
-                stagger: CONFIG.revealChildren.stagger,
-                ease: CONFIG.revealChildren.ease,
-            }, revealDelay);
+            if (staggerable.length >= minCount) {
+                tl.to(staggerable, {
+                    autoAlpha: 1,
+                    duration: CONFIG.revealChildren.duration,
+                    stagger: CONFIG.revealChildren.stagger,
+                    ease: CONFIG.revealChildren.ease,
+                }, CONFIG.revealChildren.delay || 0);
+            }
+
+            // Slider stagger nel flusso reveal globale (parte subito, senza delay)
+            if (sliderTargets) {
+                tl.to(sliderTargets, {
+                    autoAlpha: 1,
+                    duration: 2,
+                    stagger: 0.3,
+                    ease: "power2.out",
+                }, 0);
+            }
 
             return tl;
         }
@@ -3193,6 +3065,7 @@ CODE MAP
                 trigger: el,
                 start,
                 once: true,
+                markers: CONFIG.debug,
                 onEnter: () => animateReveal(el),
             });
         });
@@ -3416,9 +3289,6 @@ CODE MAP
     // FIX FLASH: overlay a 0 immediato
     if (loaderOverlays.length) gsap.set(loaderOverlays, { opacity: 0 });
 
-    // Stabilizza crisp-header su GPU: evita rasterizzazioni ripetute durante lo scale
-    gsap.set(crispHeader, { force3D: true, willChange: "transform" });
-
     let allLines = [];
 
     const tl = gsap.timeline({
@@ -3482,14 +3352,6 @@ CODE MAP
     // 2) SCALE UP + LOGO OUT — simultanei
     if (scaleUp.length) {
     const isSmall = window.matchMedia("(width < 48em)").matches;
-
-    // FIX MOBILE JITTER: promuovi GPU layer prima della zoomata (non tocca l'animazione)
-    gsap.set(scaleUp, {
-        force3D: true,
-        willChange: "transform, width, height",
-        backfaceVisibility: "hidden",
-    });
-
     tl.fromTo(scaleUp,
         { width: isSmall ? "7.5em" : "10em", height: isSmall ? "10em" : "7.5em" },
         { width: "100vw", height: "100dvh", duration: 2.2 },
@@ -3553,9 +3415,6 @@ CODE MAP
     tl.call(() => {
         crispHeader.classList.remove("is--loading");
         document.documentElement.classList.remove("is-loading");
-
-        // Rimuovi will-change ora che l'animazione è terminata
-        gsap.set(crispHeader, { clearProps: "willChange" });
 
         container.querySelectorAll('[data-slideshow="wrap"]').forEach(wrap => {
             wrap.__slideshowStart?.();
@@ -4291,13 +4150,8 @@ CODE MAP
                         const crispFns = crispWraps.map(wrap => initSlideShow(wrap));
                         currentCrispSlideshowCleanup = () => crispFns.forEach(fn => { try { fn?.(); } catch (_) {} });
 
-                        // Slider Swiper PRIMA del loader (DOM visibile, Swiper può misurare)
-                        currentSlidersCleanup?.();
-                        currentSlidersCleanup = initSlidersSimple(data.next.container);
-                        data.next.container.__slidersCleanup = currentSlidersCleanup;
-
                         await runLoaderHome(data.next.container, () => {
-                            // Hero già animato dal crisp loader — solo below-fold reveals
+                            // Below-fold reveals (non dipendono da Swiper)
                             const { below } = classifyReveals(data.next.container);
                             const triggers = setupBelowFold(below);
                             currentReveal = {
@@ -4305,6 +4159,14 @@ CODE MAP
                                 triggers,
                                 cleanup: () => triggers.forEach(t => { try { t.kill(); } catch (_) {} }),
                             };
+
+                            // FIX: Swiper ha bisogno di un paint cycle per calcolare le width
+                            // dopo che is-loading è stato rimosso dal CSS
+                            requestAnimationFrame(() => {
+                                currentSlidersCleanup?.();
+                                currentSlidersCleanup = initSlidersSimple(data.next.container);
+                                data.next.container.__slidersCleanup = currentSlidersCleanup;
+                            });
                         });
 
                     } else {
