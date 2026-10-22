@@ -1,0 +1,21 @@
+name = "studio-olimpo-photo-bridge"
+main = "worker/index.mjs"
+compatibility_date = "2026-10-22"
+workers_dev = true
+
+# Configure the Drive root folders explicitly after account onboarding.
+# Comma-separated IDs; no private client folder IDs in source control.
+[vars]
+ALLOWED_ROOT_IDS = ""
+
+# Before deploying, create a KV namespace in the Studio Olimpo Cloudflare
+# account and add its real identifier below:
+#
+# [[kv_namespaces]]
+# binding = "JOBS"
+# id = "REPLACE_WITH_REAL_KV_NAMESPACE_ID"
+#
+# Set secrets using Cloudflare dashboard (Workers > Settings > Variables):
+# ADMIN_TOKEN (random >=32 characters)
+# GOOGLE_CLIENT_EMAIL (Google service account)
+# GOOGLE_PRIVATE_KEY (complete PEM with newline characters)

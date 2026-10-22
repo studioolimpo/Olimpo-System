@@ -1,0 +1,19 @@
+{
+  "name": "studio-olimpo-photo-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "build:plugin": "esbuild plugin/code.ts --bundle --platform=browser --target=es2022 --outfile=plugin/code.js",
+    "check:worker": "node --check worker/index.mjs && node --check worker/util.mjs",
+    "deploy": "wrangler deploy",
+    "typecheck:plugin": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0",
+    "@figma/plugin-typings": "^1.142.0",
+    "wrangler": "^4.0.0"
+  }
+}

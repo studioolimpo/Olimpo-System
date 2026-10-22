@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{color-scheme:light dark}
+body{font:12px/1.5 Inter,Arial,sans-serif;background:var(--figma-color-bg,#fff);color:var(--figma-color-text,#222);margin:0}
+main{padding:16px}
+h1{font-size:16px;margin:0 0 5px;font-weight:600}
+label{display:block;font-size:12px;margin-top:12px;margin-bottom:4px;font-weight:600}
+input{box-sizing:border-box;width:100%;padding:9px;border-radius:6px;border:1px solid var(--figma-color-border,#bbb);color:inherit;background:var(--figma-color-bg-secondary,#fafafa);font-size:12px}
+button{width:100%;margin-top:16px;padding:11px;border:0;border-radius:7px;background:var(--figma-color-bg-brand,#2563eb);color:white;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+.small{font-size:11px;color:var(--figma-color-text-secondary,#777);line-height:1.55}
+#status{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--figma-color-bg-secondary,#f5f5f5);padding:10px;border-radius:6px;margin-top:14px;max-height:220px;overflow-y:auto}
+</style>
+</head>
+<body><main>
+<h1>Studio Olimpo — Photo Import</h1>
+<div class="small">Un solo avvio per importare in Figma le fotografie del lavoro preparato da ChatGPT. Nessuna modifica agli originali Drive.</div>
+<label for="base">Cloudflare Photo Bridge (HTTPS)</label>
+<input id="base" type="url" placeholder="https://studio-olimpo-photo-bridge.ACCOUNT.workers.dev" spellcheck="false">
+<label for="job">ID lavoro</label>
+<input id="job" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false">
+<label for="token">Token temporaneo del lavoro</label>
+<input id="token" type="password" placeholder="Token di 1 ora" autocomplete="off">
+<button id="run">Verifica e importa fotografie</button>
+<div id="status">Pronto. Apri in Figma la pagina TEST indicata dal lavoro.</div>
+<div class="small" style="margin-top:12px">Il plugin non conserva password Google. I token dei singoli lavori non vengono salvati sul Mac o in Figma. Il servizio accede soltanto alle cartelle autorizzate.</div>
+</main>
+<script>
+(() => {
+ const id = key => document.getElementById(key);
+ const state = { waiting:null, busy:false, context:null };
+ function status(value){id('status').textContent=value}
+ function post(message){parent.postMessage({pluginMessage:message},'*')}
+ window.addEventListener('message',event=>{
+  const msg=event.data && event.data.pluginMessage;
+  if(!msg)return;
+  if(msg.type==='context'){state.context=msg;return}
+  if(msg.type==='failure'){
+   if(state.waiting){const w=state.waiting;state.waiting=null;w.reject(Error(msg.error))}
+   else status('Errore Figma: '+msg.error);
+   return;
+  }
+  if(state.waiting){const w=state.waiting;state.waiting=null;
+   if(msg.type===w.expect)w.resolve(msg);else w.reject(Error('Risposta imprevista: '+msg.type))}
+ });
+ function command(payload,expected){
+  return new Promise((resolve,reject)=>{
+   if(state.waiting)return reject(Error('Un trasferimento è già in esecuzione'));
+   state.waiting={expect:expected,resolve,reject};
+   post(payload);
+  });
+ }
+ function secureBridge(value){
+  const url=new URL(String(value||'').trim());
+  if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)throw Error('Endpoint non valido');
+  const host=url.hostname.toLowerCase();
+  if(!(host==='studioolimpo.it'||host.endsWith('.studioolimpo.it')||host.endsWith('.workers.dev')))throw Error('L’endpoint deve appartenere a Studio Olimpo o Cloudflare Workers');
+  if(url.pathname!=='/'&&url.pathname!=='')throw Error('Incolla l’indirizzo di base del Worker, senza percorsi');
+  return url.origin;
+ }
+ async function callBridge(url,token,options={}){
+  const response=await fetch(url,{...options,headers:{'X-Job-Token':token,...(options.headers||{})},cache:'no-store'});
+  if(!response.ok)throw Error('Photo Bridge HTTP '+response.status);
+  return response;
+ }
+ async function normalize(blob){
+  let bitmap=null,image=null,objectUrl='';
+  let sourceWidth=0,sourceHeight=0;
+  try{
+   if(typeof createImageBitmap==='function'){
+    bitmap=await createImageBitmap(blob);sourceWidth=bitmap.width;sourceHeight=bitmap.height;
+   }else{
+    objectUrl=URL.createObjectURL(blob);
+    image=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(Error('Decodifica immagine fallita'));img.src=objectUrl});
+    sourceWidth=image.naturalWidth;sourceHeight=image.naturalHeight;
+   }
+   if(sourceWidth<1||sourceHeight<1)throw Error('Dimensioni immagine non valide');
+   if(Math.max(sourceWidth,sourceHeight)<=4096){
+    return {blob,sourceWidth,sourceHeight,width:sourceWidth,height:sourceHeight,normalized:false};
+   }
+   const factor=4096/Math.max(sourceWidth,sourceHeight);
+   const width=Math.max(1,Math.round(sourceWidth*factor));
+   const height=Math.max(1,Math.round(sourceHeight*factor));
+   const canvas=document.createElement('canvas');
+   canvas.width=width;canvas.height=height;
+   const ctx=canvas.getContext('2d');
+   if(!ctx)throw Error('Canvas non disponibile');
+   ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+   ctx.drawImage(bitmap||image,0,0,width,height);
+   const result=await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(Error('Codifica PNG fallita')),'image/png'));
+   canvas.width=0;canvas.height=0;
+   return {blob:result,sourceWidth,sourceHeight,width,height,normalized:true};
+  }finally{
+   if(bitmap && bitmap.close)bitmap.close();
+   if(objectUrl)URL.revokeObjectURL(objectUrl);
+  }
+ }
+ async function run(){
+  if(state.busy)return;
+  state.busy=true;id('run').disabled=true;
+  let started=false,jobId='',base='',token='';
+  const results=[];
+  try{
+   base=secureBridge(id('base').value);
+   jobId=id('job').value.trim();token=id('token').value.trim();
+   if(!/^[0-9a-f-]{36}$/i.test(jobId)||token.length<20)throw Error('Inserisci un ID lavoro e un token validi');
+   status('Verifica lavoro su Photo Bridge…');
+   const response=await callBridge(base+'/v1/jobs/'+encodeURIComponent(jobId),token);
+   const job=await response.json();
+   if(!job.photos||!Array.isArray(job.photos)||job.photos.length<1)throw Error('Nessuna fotografia nel lavoro');
+   if(job.photos.length>400)throw Error('Lotto troppo grande');
+   if(!state.context)throw Error('Contesto Figma non disponibile');
+   if(state.context.pageId!==job.figmaPageId)throw Error('Apri la pagina Figma prevista: '+job.figmaPageId+' (attuale '+state.context.pageId+')');
+   if(state.context.fileKey && state.context.fileKey!==job.figmaFileKey)throw Error('File Figma non corrispondente al lavoro');
+   status('Progetto: '+job.project+'\nFotografie: '+job.photos.length+'\nInizio importazione…');
+   await command({type:'start',jobId,project:job.project,fileKey:job.figmaFileKey,pageId:job.figmaPageId,expected:job.photos.length},'started');
+   started=true;
+   for(let i=0;i<job.photos.length;i++){
+    const photo=job.photos[i];
+    status((i+1)+'/'+job.photos.length+' · '+photo.name+'\n'+photo.path+'\nImportate finora: '+results.filter(r=>r.status==='IMPORTED').length);
+    const initial=await command({type:'file-start',photo},'file-started');
+    if(initial.outcome==='new'){
+     try{
+      const download=await callBridge(base+'/v1/jobs/'+jobId+'/files/'+encodeURIComponent(photo.id),token);
+      const blob=await download.blob();
+      if(blob.size!==photo.size)throw Error('Dimensione scaricata diversa da quella Drive');
+      const prepared=await normalize(blob);
+      if(prepared.blob.size>150000000)throw Error('Immagine compatibile Figma troppo pesante');
+      await command({
+       type:'file-prepared',length:prepared.blob.size,
+       sourceWidth:prepared.sourceWidth,sourceHeight:prepared.sourceHeight,
+       width:prepared.width,height:prepared.height,normalized:prepared.normalized
+      },'file-prepared-ack');
+      for(let offset=0;offset<prepared.blob.size;offset+=500000){
+       const data=new Uint8Array(await prepared.blob.slice(offset,Math.min(offset+500000,prepared.blob.size)).arrayBuffer());
+       await command({type:'chunk',data},'chunk-ack');
+      }
+     }catch(error){
+      // Failure of an individual download cannot be skipped mid-file safely:
+      // abort this job; rerun will detect already imported nodes.
+      throw Error(photo.name+': '+error);
+     }
+    }
+    const result=await command({type:'file-end'},'file-result');
+    results.push({fileId:photo.id,status:result.status,nodeId:result.nodeId||'',error:result.error||''});
+   }
+   const result=await command({type:'complete'},'finished');
+   started=false;
+   let reportStored=false;
+   try{
+    const report=await callBridge(base+'/v1/jobs/'+jobId+'/report',token,{
+     method:'POST',headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({entries:results})
+    });
+    reportStored=(await report.json()).saved===true;
+   }catch(error){ /* Imported Figma layers remain; QA read-back is required. */ }
+   const imported=results.filter(r=>r.status==='IMPORTED').length;
+   const skipped=results.filter(r=>r.status==='SKIPPED').length;
+   const failed=results.filter(r=>r.status==='FAILED').length;
+   status('Completato: '+imported+' importate, '+skipped+' già presenti, '+failed+' da verificare.\nSection '+result.sectionId+'\nReport trasferito al Worker: '+(reportStored?'Sì':'No')+'\nRileggere i layer Figma prima di approvare S02.');
+  }catch(error){
+   if(started)post({type:'abort'});
+   status('Importazione interrotta: '+error+'\nRieseguendo il lavoro, i file già importati verranno riconosciuti.');
+  }finally{
+   state.busy=false;id('run').disabled=false;
+   id('token').value='';
+  }
+ }
+ id('run').addEventListener('click',run);
+})();
+</script></body></html>

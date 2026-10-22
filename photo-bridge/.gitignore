@@ -1,0 +1,10 @@
+node_modules/
+plugin/code.js
+.wrangler/
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+.DS_Store

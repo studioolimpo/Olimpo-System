@@ -1,0 +1,38 @@
+name: Studio Olimpo Photo Bridge — CI
+
+on:
+  push:
+    branches:
+      - 'feat/studio-olimpo-photo-bridge-v1'
+    paths:
+      - 'photo-bridge/**'
+      - '.github/workflows/photo-bridge-ci.yml'
+  pull_request:
+    paths:
+      - 'photo-bridge/**'
+      - '.github/workflows/photo-bridge-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: photo-bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run check:worker
+      - run: npm test
+      - run: npm run typecheck:plugin
+      - run: npm run build:plugin
+      - name: Package classic Figma plugin
+        run: zip -j studio-olimpo-photo-import-classic.zip plugin/manifest.json plugin/code.js plugin/ui.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-olimpo-photo-import-classic
+          path: photo-bridge/studio-olimpo-photo-import-classic.zip
+          retention-days: 14
